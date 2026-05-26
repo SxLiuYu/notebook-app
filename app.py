@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""NotebookLM-style RAG app v2 — vector search, PDF support, multi-stage podcast with TTS."""
+"""NotebookLM-style RAG app v2.1 — folders, cloud embeddings, PDF, podcast + TTS."""
 import os, json, re, hashlib, time, gc
 from datetime import datetime
-from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask import Flask, request, jsonify, render_template
 import requests
 
 from document_processor import process_file, summarize
@@ -24,12 +24,11 @@ os.makedirs(INDEX_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "static", "podcasts"), exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "data", "chroma_db"), exist_ok=True)
 
-# Set ChromaDB path for rag_engine
 import rag_engine
 rag_engine.CHROMA_PATH = os.path.join(BASE_DIR, "data", "chroma_db")
 
 
-# ─── Document Store (lightweight JSON for doc metadata) ───
+# ─── Document Store ───
 def load_docs():
     path = os.path.join(INDEX_DIR, "documents.json")
     if os.path.exists(path):
@@ -40,6 +39,19 @@ def load_docs():
 def save_docs(docs):
     with open(os.path.join(INDEX_DIR, "documents.json"), "w") as f:
         json.dump(docs, f, ensure_ascii=False, indent=2)
+
+
+# ─── Folder Store ───
+def load_folders():
+    path = os.path.join(INDEX_DIR, "folders.json")
+    if os.path.exists(path):
+        with open(path) as f:
+            return json.load(f)
+    return []
+
+def save_folders(folders):
+    with open(os.path.join(INDEX_DIR, "folders.json"), "w") as f:
+        json.dump(folders, f, ensure_ascii=False, indent=2)
 
 
 # ─── LLM Call ───
@@ -63,18 +75,92 @@ def call_llm(messages, max_tokens=2048):
     return None
 
 
-# ─── Routes ───
+# ─── Routes: Home ───
 @app.route("/")
 def index():
     return render_template("index.html")
 
+# ─── Routes: Folders ───
+@app.route("/api/folders", methods=["GET"])
+def list_folders():
+    folders = load_folders()
+    docs = load_docs()
+    for f in folders:
+        f["doc_count"] = sum(1 for d in docs if d.get("folder_id") == f["id"])
+    uncategorized = sum(1 for d in docs if not d.get("folder_id"))
+    return jsonify({"folders": folders, "uncategorized": uncategorized})
+
+@app.route("/api/folders", methods=["POST"])
+def create_folder():
+    data = request.get_json()
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    folders = load_folders()
+    fid = hashlib.md5(f"{name}{time.time()}".encode()).hexdigest()[:8]
+    folder = {"id": fid, "name": name, "created": datetime.now().isoformat()}
+    folders.append(folder)
+    save_folders(folders)
+    return jsonify({"ok": True, "folder": folder})
+
+@app.route("/api/folders/<fid>", methods=["PUT"])
+def rename_folder(fid):
+    data = request.get_json()
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    folders = load_folders()
+    for f in folders:
+        if f["id"] == fid:
+            f["name"] = name
+            save_folders(folders)
+            return jsonify({"ok": True, "folder": f})
+    return jsonify({"error": "not found"}), 404
+
+@app.route("/api/folders/<fid>", methods=["DELETE"])
+def delete_folder(fid):
+    folders = load_folders()
+    folders = [f for f in folders if f["id"] != fid]
+    save_folders(folders)
+    # Move docs to uncategorized
+    docs = load_docs()
+    for d in docs:
+        if d.get("folder_id") == fid:
+            d["folder_id"] = None
+    save_docs(docs)
+    return jsonify({"ok": True})
+
+@app.route("/api/docs/<doc_id>/move", methods=["PUT"])
+def move_doc(doc_id):
+    data = request.get_json()
+    folder_id = data.get("folder_id")  # None = uncategorized
+    docs = load_docs()
+    for d in docs:
+        if d["id"] == doc_id:
+            d["folder_id"] = folder_id
+            save_docs(docs)
+            return jsonify({"ok": True, "folder_id": folder_id})
+    return jsonify({"error": "not found"}), 404
+
+# ─── Routes: Documents ───
 @app.route("/api/docs", methods=["GET"])
 def list_docs():
+    folder_id = request.args.get("folder_id", "")
     docs = load_docs()
+    if folder_id == "uncategorized":
+        docs = [d for d in docs if not d.get("folder_id")]
+    elif folder_id:
+        docs = [d for d in docs if d.get("folder_id") == folder_id]
+    
+    folders = load_folders()
+    folder_map = {f["id"]: f["name"] for f in folders}
+    
     return jsonify({"documents": [
         {"id": d["id"], "title": d["title"], "created": d["created"],
          "chunks": d.get("chunk_count", 0), "size": d.get("size", 0),
-         "summary": d.get("summary", "")}
+         "summary": d.get("summary", ""),
+         "folder_id": d.get("folder_id"),
+         "folder_name": folder_map.get(d.get("folder_id", ""), "")}
         for d in docs
     ]})
 
@@ -101,11 +187,13 @@ def upload():
     if f.filename == "":
         return jsonify({"error": "no filename"}), 400
     
+    # Get folder_id from form data
+    folder_id = request.form.get("folder_id", "") or None
+    
     filename = f.filename
     filepath = os.path.join(DOCS_DIR, filename)
     f.save(filepath)
     
-    # Process document
     result = process_file(filepath, filename)
     chunks = result.get("chunks", [])
     
@@ -114,10 +202,8 @@ def upload():
     
     doc_id = hashlib.md5(f"{filename}{time.time()}".encode()).hexdigest()[:12]
     
-    # Index into vector store
     add_documents(doc_id, chunks, {"title": filename, "source": filename})
     
-    # Auto-generate summary
     doc_summary = summarize(result["full_text"], 200)
     
     doc = {
@@ -128,23 +214,23 @@ def upload():
         "size": len(result["full_text"]),
         "chunk_count": len(chunks),
         "summary": doc_summary,
-        "full_text": result["full_text"]
+        "full_text": result["full_text"],
+        "folder_id": folder_id
     }
     
     docs = load_docs()
     docs.append(doc)
     save_docs(docs)
     
-    # Generate suggested questions
     suggested = _generate_suggested_questions(result["full_text"])
-    
     gc.collect()
     
     return jsonify({
         "ok": True,
         "doc": {
             "id": doc_id, "title": filename, "chunks": len(chunks),
-            "summary": doc_summary, "suggested": suggested
+            "summary": doc_summary, "suggested": suggested,
+            "folder_id": folder_id
         }
     })
 
@@ -153,7 +239,8 @@ def ask():
     data = request.get_json()
     query = data.get("query", "").strip()
     doc_id = data.get("doc_id", "")
-    history = data.get("history", [])  # [{role, content}]
+    folder_id = data.get("folder_id", "")
+    history = data.get("history", [])
     
     if not query:
         return jsonify({"error": "empty query"}), 400
@@ -161,15 +248,18 @@ def ask():
     docs = load_docs()
     if doc_id:
         docs = [d for d in docs if d["id"] == doc_id]
+    elif folder_id:
+        if folder_id == "uncategorized":
+            docs = [d for d in docs if not d.get("folder_id")]
+        else:
+            docs = [d for d in docs if d.get("folder_id") == folder_id]
     
     if not docs:
         return jsonify({"answer": "请先上传文档。", "sources": []})
     
-    # Vector + BM25 hybrid search
     doc_ids = [d["id"] for d in docs]
     results = search(query, top_k=8, doc_ids=doc_ids)
     
-    # LLM re-rank
     if len(results) > 3:
         ranked_indices = re_rank_with_llm(query, results, call_llm)
         results = [results[i] for i in ranked_indices if i < len(results)]
@@ -177,7 +267,6 @@ def ask():
     if not results:
         return jsonify({"answer": "在文档中没有找到相关内容。试试换个问法？", "sources": []})
     
-    # Build context with unique sources
     context_parts = []
     sources = []
     seen_titles = set()
@@ -187,14 +276,17 @@ def ask():
         if title not in seen_titles:
             sources.append({"title": title, "id": r["metadata"].get("doc_id", "")})
             seen_titles.add(title)
-        context_parts.append(f"[来源: {title}]\n{r['chunk_text']}")
+        context_parts.append(f"[来源: {title}]" + chr(10) + r["chunk_text"])
     
-    context = "\n\n---\n\n".join(context_parts)
+    context = "
+
+---
+
+".join(context_parts)
     
-    # Build messages with history
     messages = []
     if history:
-        for h in history[-6:]:  # Last 3 turns
+        for h in history[-6:]:
             messages.append({"role": h["role"], "content": h["content"]})
     
     prompt = f"""你是一个智能研究助手。基于以下文档内容回答用户问题。
@@ -224,19 +316,28 @@ def ask():
 def podcast():
     data = request.get_json()
     doc_id = data.get("doc_id", "")
+    folder_id = data.get("folder_id", "")
     topic = data.get("topic", "").strip()
     
     docs = load_docs()
     if doc_id:
         docs = [d for d in docs if d["id"] == doc_id]
+    elif folder_id:
+        if folder_id == "uncategorized":
+            docs = [d for d in docs if not d.get("folder_id")]
+        else:
+            docs = [d for d in docs if d.get("folder_id") == folder_id]
     
     if not docs:
         return jsonify({"error": "请先上传文档"}), 400
     
-    # Collect full text
     full_text = ""
     for doc in docs:
-        full_text += f"\n\n## {doc['title']}\n\n"
+        full_text += f"
+
+## {doc['title']}
+
+"
         full_text += doc.get("full_text", "")
     
     if not topic:
@@ -258,7 +359,6 @@ def podcast():
 
 @app.route("/api/suggest", methods=["POST"])
 def suggest():
-    """Generate suggested questions for a document."""
     data = request.get_json()
     doc_id = data.get("doc_id", "")
     
@@ -280,7 +380,6 @@ def health():
 
 
 def _generate_suggested_questions(text):
-    """Generate 3 follow-up questions based on document content."""
     if len(text) < 100:
         return []
     
@@ -299,7 +398,8 @@ def _generate_suggested_questions(text):
         return []
     
     questions = []
-    for line in response.split("\n"):
+    for line in response.split("
+"):
         line = line.strip()
         line = re.sub(r'^\d+[\.\)、]\s*', '', line)
         if line and len(line) > 5:
