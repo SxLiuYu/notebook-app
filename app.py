@@ -2,7 +2,7 @@
 """NotebookLM-style RAG app v2.1 — folders, cloud embeddings, PDF, podcast + TTS."""
 import os, json, re, hashlib, time, gc
 from datetime import datetime
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, Response, stream_with_context
 import requests
 
 from document_processor import process_file, summarize
@@ -341,6 +341,92 @@ def get_doc_fulltext(doc_id):
         "chunks": chunks
     })
 
+@app.route("/api/ask/stream", methods=["POST"])
+def ask_stream():
+    data = request.get_json()
+    query = data.get("query", "").strip()
+    doc_id = data.get("doc_id", "")
+    folder_id = data.get("folder_id", "")
+    history = data.get("history", [])
+    if not query:
+        return jsonify({"error": "empty query"}), 400
+    docs = load_docs()
+    if doc_id:
+        docs = [d for d in docs if d["id"] == doc_id]
+    elif folder_id:
+        if folder_id == "uncategorized":
+            docs = [d for d in docs if not d.get("folder_id")]
+        else:
+            docs = [d for d in docs if d.get("folder_id") == folder_id]
+    if not docs:
+        def _e1():
+            yield f"data: {json.dumps({'type': 'error', 'data': '请先上传文档'})}\n\n"
+        return Response(_e1(), mimetype="text/event-stream")
+    doc_ids = [d["id"] for d in docs]
+    results = search(query, top_k=8, doc_ids=doc_ids)
+    if len(results) > 3:
+        ranked_indices = re_rank_with_llm(query, results, call_llm)
+        results = [results[i] for i in ranked_indices if i < len(results)]
+    if not results:
+        def _e2():
+            yield f"data: {json.dumps({'type': 'error', 'data': '无相关内容'})}\n\n"
+        return Response(_e2(), mimetype="text/event-stream")
+    context_parts = []
+    citations = []
+    sources = []
+    seen_titles = set()
+    for i, r in enumerate(results[:5]):
+        title = r["metadata"].get("title", r["metadata"].get("source", "Unknown"))
+        doc_id_val = r["metadata"].get("doc_id", "")
+        if title not in seen_titles:
+            sources.append({"title": title, "id": doc_id_val})
+            seen_titles.add(title)
+        cite_idx = i + 1
+        chunk_text = r["chunk_text"]
+        context_parts.append(f"[引用{cite_idx}] [来源: {title}]\n{chunk_text}")
+        citations.append({"index": cite_idx, "text": chunk_text[:150], "title": title, "doc_id": doc_id_val})
+    context = "\n\n---\n\n".join(context_parts)
+    messages = []
+    if history:
+        for h in history[-10:]:
+            messages.append({"role": h["role"], "content": h["content"]})
+    prompt = f"""你是一个智能研究助手。基于以下文档内容回答用户问题。
+
+规则：
+- 只能基于提供的文档内容回答，文档中没有的信息明确说"文档中没有提到"
+- 每个事实性论断必须标注引用编号，格式：[引用N]
+- 引用编号必须与上下文中的 [引用N] 完全对应
+- 如果信息来自多个文档，明确指出差异
+- 回答简洁、准确，用中文 + Markdown
+
+文档内容（标注了引用编号的原文片段）：
+{context}
+
+用户问题：{query}
+
+请回答："""
+    messages.append({"role": "user", "content": prompt})
+    def generate():
+        yield f"data: {json.dumps({'type': 'citations', 'data': citations}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'sources', 'data': sources}, ensure_ascii=False)}\n\n"
+        try:
+            resp = requests.post(f"{FINNA_BASE}/chat/completions", headers={"Authorization": f"Bearer {FINNA_KEY}", "Content-Type": "application/json"}, json={"model": LLM_MODEL, "messages": messages, "temperature": 0.3, "max_tokens": 2048, "stream": True, "extra_body": {"enable_thinking": False}}, timeout=90, stream=True)
+            for line in resp.iter_lines(decode_unicode=True):
+                if line and line.startswith("data: "):
+                    ds = line[6:]
+                    if ds.strip() == "[DONE]": break
+                    try:
+                        chunk = json.loads(ds)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            yield f"data: {json.dumps({'type': 'text', 'data': content}, ensure_ascii=False)}\n\n"
+                    except: continue
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'data': f'LLM调用失败: {str(e)}'}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+    return Response(stream_with_context(generate()), mimetype="text/event-stream")
+
 @app.route("/api/podcast", methods=["POST"])
 def podcast():
     data = request.get_json()
@@ -649,6 +735,33 @@ def whitelist_add():
 
     except Exception as e:
         return jsonify({"error": f"加白失败: {str(e)}"}), 500
+
+# ─── Chat Persistence ───
+CHATS_DIR = os.path.join(BASE_DIR, "data", "chats")
+def _chat_path(folder_id):
+    safe = folder_id.replace("/", "_").replace("\\", "_")
+    return os.path.join(CHATS_DIR, f"{safe}.json")
+@app.route("/api/chat/<folder_id>", methods=["GET"])
+def get_chat(folder_id):
+    path = _chat_path(folder_id)
+    if os.path.exists(path):
+        with open(path) as f:
+            return jsonify({"history": json.load(f)})
+    return jsonify({"history": []})
+@app.route("/api/chat/<folder_id>", methods=["PUT"])
+def save_chat(folder_id):
+    data = request.get_json()
+    os.makedirs(CHATS_DIR, exist_ok=True)
+    with open(_chat_path(folder_id), "w") as f:
+        json.dump(data.get("history", []), f, ensure_ascii=False)
+    return jsonify({"ok": True})
+@app.route("/api/chat/<folder_id>", methods=["DELETE"])
+def delete_chat(folder_id):
+    path = _chat_path(folder_id)
+    if os.path.exists(path):
+        os.remove(path)
+    return jsonify({"ok": True})
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8095, debug=False)

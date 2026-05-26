@@ -118,6 +118,23 @@ body{font-family:var(--font);color:var(--text);background:var(--bg);display:flex
 .cite-popup .btn{font-size:12px;padding:6px 14px;border-radius:6px;border:1px solid #d1d5db;background:white;cursor:pointer}
 .cite-popup .btn.primary{background:#2563eb;color:white;border-color:#2563eb}
 .multi-doc-hint{font-size:11px;color:var(--text3);margin-top:6px;padding:4px 8px;background:#f0fdf4;border-radius:4px;display:inline-block}
+
+body.dark{--bg:#111827;--side-bg:#1f2937;--text:#f1f5f9;--text2:#94a3b8;--text3:#64748b;--border:#334155;--hover:#1e293b;--accent-light:#1e3a5f}
+body.dark .cite{background:#1e3a5f;color:#93c5fd}
+body.dark .cite:hover{background:#1e40af}
+body.dark .cite-popup{background:#1f2937;border-color:#334155;color:#e2e8f0}
+body.dark .cite-popup .ctext{background:#111827;color:#cbd5e1}
+body.dark .source-chunk{color:#e2e8f0}
+body.dark .multi-doc-hint{background:#064e3b}
+.dark-toggle{background:none;border:1px solid var(--border);border-radius:20px;padding:4px 10px;cursor:pointer;font-size:16px;line-height:1;transition:all .2s;margin-right:6px;min-width:36px}
+.dark-toggle:hover{background:var(--hover)}
+.stream-cursor{animation:blink 1s step-end infinite;color:var(--accent)}
+@keyframes blink{50%{opacity:0}}
+.suggest-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;justify-content:center}
+.suggest-chip{background:var(--accent-light);color:var(--accent);border:1px solid transparent;border-radius:16px;padding:6px 14px;font-size:12px;cursor:pointer;transition:all .15s;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.suggest-chip:hover{background:var(--accent);color:white;border-color:var(--accent)}
+.clear-chat-btn{background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;color:var(--text3);margin-left:8px}
+.clear-chat-btn:hover{color:#e53e3e;border-color:#e53e3e}
 </style>
 <script src="/static/marked.min.js"></script>
 </head>
@@ -143,12 +160,12 @@ body{font-family:var(--font);color:var(--text);background:var(--bg);display:flex
 <main class="main">
   <div class="header-bar">
     <button class="hamburger" data-action="toggleSidebar">☰</button>
-    <div class="tabs" style="border:none;padding:0">
+    <button class="dark-toggle" id="dt" onclick="toggleDark()" title="切换深色模式">🌙</button><div class="tabs" style="border:none;padding:0">
       <div class="tab active" data-action="switchTab" data-tab="chat">💬 问答</div>
       <div class="tab" data-action="switchTab" data-tab="pod">🎙️ 播客</div>
       <div class="tab" data-action="switchTab" data-tab="source">📄 原文</div>
     </div>
-    <span style="margin-left:auto;font-size:12px;color:var(--text3)" id="fb">全部文档</span>
+    <span style="margin-left:auto;font-size:12px;color:var(--text3)" id="fb">全部文档</span><button class="clear-chat-btn" onclick="clearChat()" title="清空对话">清空</button>
     <button id="kb" data-action="openKnowledge" style="display:none;font-size:12px;background:none;border:1px solid var(--border);padding:3px 10px;border-radius:4px;cursor:pointer;color:var(--accent);margin-left:8px">📊</button>
   </div>
 
@@ -243,7 +260,7 @@ function switchTab(v){cv=v;document.querySelectorAll('.tab').forEach(function(t)
 async function loadAll(){
   g('fn').innerHTML='<div style="padding:6px 10px;color:var(--text3);font-size:12px">加载中…</div>';
   g('dn').innerHTML='<div style="padding:6px 10px;color:var(--text3);font-size:12px">加载中…</div>';
-  try{var f=await api('/api/folders');folders=f.folders||[];var d=await api('/api/docs'+(af?'?folder_id='+af:''));docs=d.documents||[];renderSidebar()}
+  try{var f=await api('/api/folders');folders=f.folders||[];var d=await api('/api/docs'+(af?'?folder_id='+af:''));docs=d.documents||[];renderSidebar();suggestQuestions()}
   catch(e){g('fn').innerHTML='<div style="padding:6px 10px;color:#e53e3e;font-size:12px">❌ '+e.message+'</div>';g('dn').innerHTML=''}
 }
 
@@ -259,7 +276,7 @@ function ni(id,name,icon,sel){return '<div class="nav-item'+(sel?' sel':'')+'" d
 function di(id,title,sel){return '<div class="nav-item'+(sel?' sel':'')+'" data-action="sd" data-id="'+esc(id)+'" style="padding-left:20px;font-size:12px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">'+esc(title)+'</span><span data-action="delDoc" data-id="'+esc(id)+'" style="cursor:pointer;opacity:.4;font-size:14px;padding:0 4px">✕</span></div>'}
 
 // ====== ACTIONS ======
-async function sf(id){af=id===af?'':id;ad='';hist=[];await loadAll();renderChat();if(af&&af!=='uncategorized')preloadKnowledge()}
+async function sf(id){if(af&&af!==id){saveChat()};af=id===af?'':id;ad='';hist=[];await loadAll();await loadChat();renderChat();suggestQuestions();if(af&&af!=='uncategorized')preloadKnowledge()}
 function sd(id){ad=id===ad?'':id;renderSidebar()}
 async function createFolder(){var n=g('nfn').value.trim();if(!n)return;await api('/api/folders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n})});g('nfn').value='';toast('已创建：'+n);await loadAll()}
 async function delDoc(id){if(!confirm('删除？'))return;await api('/api/docs/'+id,{method:'DELETE'});if(ad===id)ad='';await loadAll()}
@@ -267,9 +284,9 @@ async function delDoc(id){if(!confirm('删除？'))return;await api('/api/docs/'
 async function upload(inp){var fs=inp.files;if(!fs.length)return;for(var i=0;i<fs.length;i++){var f=fs[i],fd=new FormData();fd.append('file',f);if(af&&af!=='uncategorized')fd.append('folder_id',af);try{var r=await api('/api/upload',{method:'POST',body:fd});toast('✅ '+f.name+' · '+r.doc.chunks+' 段落')}catch(e){toast('❌ '+e.message)}}inp.value='';await loadAll()}
 
 // ====== CHAT ======
-function renderChat(){var c=g('cm');if(!hist.length){c.innerHTML='<div class="empty"><div class="empty-icon">📖</div><h2>上传文档，开始探索</h2><p>支持 PDF、DOCX、TXT、Markdown 等格式</p></div>';return}var h='';hist.forEach(function(m){if(m.role==='user')h+='<div class="msg user"><div class="bubble">'+esc(m.content)+'</div></div>';else{var txt=typeof marked!=='undefined'?marked.parse(m.content):m.content;txt=txt.replace(/\[引用(\d+)\]/g,'<sup class="cite" onclick="event.stopPropagation();showCitation(parseInt($1))">[$1]</sup>');h+='<div class="msg assistant"><div class="bubble">'+txt+'</div>';if(m.citations&&m.citations.length>1){var titles=m.citations.map(function(c){return c.title});var uniq=titles.filter(function(v,i,a){return a.indexOf(v)===i});if(uniq.length>1)h+='<span class="multi-doc-hint">📚 综合了 '+uniq.length+' 份文档</span>'}});c.innerHTML=h;c.scrollTop=c.scrollHeight}
+function renderChat(){var c=g('cm');if(!hist.length){c.innerHTML='<div class="empty"><div class="empty-icon">📖</div><h2>上传文档，开始探索</h2><p>支持 PDF、DOCX、TXT、Markdown 等格式</p><div class="suggest-chips" id="sg"></div></div>';return}var h='';hist.forEach(function(m){if(m.role==='user')h+='<div class="msg user"><div class="bubble">'+esc(m.content)+'</div></div>';else{var txt=typeof marked!=='undefined'?marked.parse(m.content):m.content;txt=txt.replace(/\[引用(\d+)\]/g,'<sup class="cite" onclick="event.stopPropagation();showCitation(parseInt($1))">[$1]</sup>');h+='<div class="msg assistant"><div class="bubble">'+txt+'</div>';if(m.citations&&m.citations.length>1){var titles=m.citations.map(function(c){return c.title});var uniq=titles.filter(function(v,i,a){return a.indexOf(v)===i});if(uniq.length>1)h+='<span class="multi-doc-hint">📚 综合了 '+uniq.length+' 份文档</span>'}});c.innerHTML=h;c.scrollTop=c.scrollHeight}
 
-async function ask(){var q=g('qi').value.trim();if(!q)return;hist.push({role:'user',content:q});g('qi').value='';renderChat();g('cm').innerHTML+='<div class="msg assistant"><div class="bubble" style="color:var(--text3)">🤔 思考中…</div></div>';try{var r=await api('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q,doc_id:ad||undefined,folder_id:af||undefined,history:hist.slice(0,-1)})});hist.push({role:'assistant',content:r.answer,citations:r.citations||[],sources:r.sources||[]});renderChat()}catch(e){hist.pop();renderChat();g('cm').innerHTML+='<div class="msg assistant"><div class="bubble" style="color:#e53e3e">❌ '+e.message+'</div></div>'}}
+async async function ask(){var q=g('qi').value.trim();if(!q)return;hist.push({role:'user',content:q});g('qi').value='';renderChat();saveChat();g('cm').innerHTML+='<div class="msg assistant" id="stream-msg"><div class="bubble"><span class="stream-cursor">▊</span></div></div>';g('cm').scrollTop=g('cm').scrollHeight;var citations=null,sources=null,fullText='';try{var resp=await fetch(API+'/api/ask/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q,doc_id:ad||undefined,folder_id:af||undefined,history:hist.slice(0,-1)})});var reader=resp.body.getReader(),decoder=new TextDecoder(),buffer='';while(true){var r2=await reader.read();if(r2.done)break;buffer+=decoder.decode(r2.value,{stream:true});var lines=buffer.split('\n');buffer=lines.pop()||'';for(var i=0;i<lines.length;i++){var line=lines[i];if(!line.startsWith('data: '))continue;try{var event=JSON.parse(line.slice(6))}catch(e){continue}if(event.type==='citations')citations=event.data;else if(event.type==='sources')sources=event.data;else if(event.type==='text'){fullText+=event.data;var el=document.getElementById('stream-msg');if(el){var txt=typeof marked!=='undefined'?marked.parse(fullText):fullText;txt=txt.replace(/\[引用(\d+)\]/g,'<sup class="cite" onclick="event.stopPropagation();showCitation(parseInt($1))">[$1]</sup>');el.querySelector('.bubble').innerHTML=txt+'<span class="stream-cursor">▊</span>';g('cm').scrollTop=g('cm').scrollHeight}}else if(event.type==='error'){fullText='❌ '+event.data;break}else if(event.type==='done'){break}}}catch(e){fullText='❌ '+e.message}var el=document.getElementById('stream-msg');if(el){var txt=typeof marked!=='undefined'?marked.parse(fullText||'生成失败'):(fullText||'生成失败');txt=txt.replace(/\[引用(\d+)\]/g,'<sup class="cite" onclick="event.stopPropagation();showCitation(parseInt($1))">[$1]</sup>');el.querySelector('.bubble').innerHTML=txt;el.removeAttribute('id');if(citations&&citations.length>1){var titles=citations.map(function(c){return c.title});var uniq=titles.filter(function(v,i,a){return a.indexOf(v)===i});if(uniq.length>1)g('cm').innerHTML+='<span class="multi-doc-hint" style="display:inline-block;margin-top:6px">📚 综合了 '+uniq.length+' 份文档</span>'}}hist.push({role:'assistant',content:fullText,citations:citations||[],sources:sources||[]});saveChat()}
 
 // ====== PODCAST ======
 function updatePodSelect(){var s=g('pdoc'),h='<option value="">全部文档</option>';docs.forEach(function(d){h+='<option value="'+d.id+'">'+esc(d.title)+'</option>'});s.innerHTML=h}
@@ -282,45 +299,49 @@ async function openKnowledge(){if(!af||af==='uncategorized')return;g('mbg').clas
 function switchKm(t){document.querySelectorAll('.modal-tab').forEach(function(tab){tab.classList.toggle('active',tab.getAttribute('data-km')===t)});var kd=kmCache[af];if(!kd){g('mb').innerHTML='<p>加载中…</p>';return}var d='';if(t==='summary')d=kd.summary||'暂无总结';else if(t==='mindmap')d=kd.mindmap||'暂无思维导图';else if(t==='learning')d=kd.learning_path||'暂无学习路径';g('mb').innerHTML='<div class="modal-panel active">'+marked.parse(d)+'</div>'}
 function closeModal(){g('mbg').classList.remove('open')}
 
-// ====== CITATIONS ======
-function showCitation(n){
-  var lastMsg=hist.filter(function(m){return m.role==='assistant'}).pop();
-  if(!lastMsg||!lastMsg.citations)return;
-  var cite=lastMsg.citations.find(function(c){return c.index===n});
-  if(!cite)return;
-  var ex=document.querySelector('.cite-popup');if(ex)ex.remove();
-  var popup=document.createElement('div');popup.className='cite-popup';
-  popup.innerHTML='<div class="ctitle">📄 '+esc(cite.title)+'</div><div class="ctext">"'+esc(cite.text)+'..."</div><div class="cactions"><button class="btn primary" onclick="viewSource(\''+cite.doc_id+'\')">查看原文</button><button class="btn" onclick="this.closest(\'.cite-popup\').remove()">关闭</button></div>';
-  document.body.appendChild(popup);
-  var rect=event.target.getBoundingClientRect();
-  popup.style.left=Math.min(rect.left,window.innerWidth-400)+'px';
-  popup.style.top=(rect.bottom+6)+'px';
-  setTimeout(function(){document.addEventListener('click',function cp(e){if(!popup.contains(e.target)&&!e.target.classList.contains('cite')){popup.remove();document.removeEventListener('click',cp)}})},10)
+// ====== DARK MODE ======
+function toggleDark(){
+  var isDark=document.body.classList.toggle('dark');
+  g('dt').textContent=isDark?'☀️':'🌙';
+  localStorage.setItem('nb-dark',isDark?'1':'0')
+}
+function initDark(){
+  if(localStorage.getItem('nb-dark')==='1'||(window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches&&!localStorage.getItem('nb-dark'))){
+    document.body.classList.add('dark');g('dt').textContent='☀️'
+  }
 }
 
-// ====== SOURCE PANEL ======
-function initSourcePanel(){
-  var sel=g('srcDoc');
-  sel.innerHTML='<option value="">选择文档…</option>';
-  var list=af?(af==='uncategorized'?docs.filter(function(d){return!d.folder_id}):docs.filter(function(d){return d.folder_id===af})):docs;
-  list.forEach(function(d){sel.innerHTML+='<option value="'+d.id+'">'+esc(d.title)+'</option>'})
+// ====== CHAT PERSISTENCE ======
+function _chatKey(){return af||'_all'}
+async function saveChat(){
+  if(!hist.length)return;
+  try{await api('/api/chat/'+_chatKey(),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({history:hist})})}catch(e){}
 }
-function viewSource(docId){
-  switchTab('source');g('srcDoc').value=docId;loadSource(docId)
+async function loadChat(){
+  try{var r=await api('/api/chat/'+_chatKey());hist=r.history||[]}catch(e){hist=[]}
 }
-async function loadSource(docId){
-  if(!docId)return;
-  var sc=g('sc')||g('sv').querySelector('.chat-body');
-  sc.innerHTML='<div class="empty"><div class="empty-icon">⏳</div><p>加载中…</p></div>';
+function clearChat(){
+  if(!confirm('清空当前对话？'))return;
+  hist=[];renderChat();saveChat();
+  api('/api/chat/'+_chatKey(),{method:'DELETE'}).catch(function(){})
+}
+
+// ====== SUGGESTED QUESTIONS ======
+async function suggestQuestions(){
+  var el=g('sg');if(!el)return;
+  el.innerHTML='<span style="font-size:11px;color:var(--text3)">⏳</span>';
   try{
-    var r=await api('/api/docs/'+docId+'/fulltext');
-    var h='<h3 style="padding:0 0 12px;font-size:16px">'+esc(r.title)+'</h3>';
-    if(r.chunks&&r.chunks.length){
-      r.chunks.forEach(function(c){h+='<div class="source-chunk" id="chunk-'+c.index+'"><span class="chunk-idx">§'+c.index+'</span>'+esc(c.text)+'</div>'})
-    }else{h+='<div class="source-chunk">'+(r.full_text||'').replace(/\n/g,'<br>')+'</div>'}
-    sc.innerHTML=h
-  }catch(e){sc.innerHTML='<div class="empty"><p style="color:#e53e3e">❌ '+e.message+'</p></div>'}
+    var r=await api('/api/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({doc_id:ad||undefined,folder_id:af||undefined})});
+    var qs=r.questions||[];
+    el.innerHTML=qs.map(function(q,i){return '<span class="suggest-chip" onclick="askSuggested(\''+q.replace(/'/g,"\\'")+'\')">'+esc(q)+'</span>'}).join('')
+  }catch(e){el.innerHTML=''}
 }
+function askSuggested(q){
+  g('qi').value=q;ask()
+}
+
+// ====== INIT ======
+initDark();
 </script>
 </body>
 </html>
