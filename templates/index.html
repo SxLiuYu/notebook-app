@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能研究助手 — NotebookLM</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #faf9f7; --card: #fff; --accent: #4a6cf7; --accent2: #6c5ce7;
+            --text: #1a1a2e; --text2: #6b7280; --border: #e5e7eb;
+            --shadow: 0 1px 3px rgba(0,0,0,0.06); --radius: 12px;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+            background: var(--bg); color: var(--text); min-height: 100vh;
+            display: flex;
+        }
+        /* Sidebar */
+        .sidebar {
+            width: 300px; background: var(--card); border-right: 1px solid var(--border);
+            display: flex; flex-direction: column; height: 100vh; position: sticky; top: 0;
+        }
+        .sidebar-header {
+            padding: 20px; border-bottom: 1px solid var(--border);
+        }
+        .sidebar-header h1 { font-size: 20px; margin-bottom: 4px; }
+        .sidebar-header .sub { font-size: 13px; color: var(--text2); }
+        .doc-list { flex: 1; overflow-y: auto; padding: 12px; }
+        .doc-item {
+            padding: 12px; border-radius: 10px; cursor: pointer;
+            margin-bottom: 6px; border: 1px solid transparent; transition: all 0.2s;
+        }
+        .doc-item:hover { background: #f3f4f6; }
+        .doc-item.active { background: #eef2ff; border-color: var(--accent); }
+        .doc-item .title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+        .doc-item .meta { font-size: 12px; color: var(--text2); }
+        .doc-item .del { float: right; color: #ef4444; font-size: 12px; cursor: pointer; opacity: 0; transition: opacity 0.2s; }
+        .doc-item:hover .del { opacity: 1; }
+        .upload-area {
+            margin: 12px; padding: 24px; border: 2px dashed var(--border);
+            border-radius: var(--radius); text-align: center; cursor: pointer;
+            transition: border-color 0.2s; color: var(--text2); font-size: 14px;
+        }
+        .upload-area:hover { border-color: var(--accent); color: var(--accent); }
+        .upload-area input { display: none; }
+        /* Main */
+        .main {
+            flex: 1; display: flex; flex-direction: column; height: 100vh; max-width: 900px;
+        }
+        .main-header {
+            padding: 20px 28px; border-bottom: 1px solid var(--border);
+            display: flex; gap: 12px; align-items: center;
+        }
+        .main-header .tab {
+            padding: 8px 18px; border-radius: 20px; font-size: 14px; font-weight: 600;
+            cursor: pointer; border: 1px solid var(--border); background: var(--card);
+            color: var(--text2); transition: all 0.2s;
+        }
+        .main-header .tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+        .chat-area { flex: 1; overflow-y: auto; padding: 24px 28px; }
+        .chat-msg {
+            margin-bottom: 20px; max-width: 85%;
+        }
+        .chat-msg.user { margin-left: auto; }
+        .chat-msg .bubble {
+            padding: 14px 18px; border-radius: 16px; font-size: 15px; line-height: 1.6;
+        }
+        .chat-msg.user .bubble { background: var(--accent); color: white; border-radius: 16px 16px 4px 16px; }
+        .chat-msg.assistant .bubble { background: var(--card); border: 1px solid var(--border); border-radius: 4px 16px 16px 16px; }
+        .chat-msg .sources { margin-top: 8px; font-size: 12px; color: var(--text2); }
+        .chat-msg .source-tag {
+            display: inline-block; padding: 2px 10px; background: #eef2ff;
+            border-radius: 10px; margin: 2px; color: var(--accent); cursor: pointer;
+        }
+        .chat-input-area {
+            padding: 16px 28px; border-top: 1px solid var(--border); display: flex; gap: 10px;
+        }
+        .chat-input-area textarea {
+            flex: 1; padding: 12px 16px; border-radius: 14px; border: 1.5px solid var(--border);
+            font-size: 15px; font-family: inherit; resize: none; outline: none; height: 48px;
+            transition: border-color 0.2s;
+        }
+        .chat-input-area textarea:focus { border-color: var(--accent); }
+        .chat-input-area button {
+            padding: 12px 24px; background: var(--accent); color: white; border: none;
+            border-radius: 14px; font-size: 15px; font-weight: 600; cursor: pointer;
+        }
+        .chat-input-area button:hover { opacity: 0.9; }
+        /* Podcast area */
+        .podcast-area { display: none; flex: 1; overflow-y: auto; padding: 24px 28px; }
+        .podcast-script {
+            background: var(--card); border-radius: var(--radius); padding: 24px;
+            border: 1px solid var(--border); font-size: 15px; line-height: 2;
+        }
+        .podcast-script .host { color: var(--accent); font-weight: 600; }
+        .podcast-script .expert { color: var(--accent2); font-weight: 600; }
+        .podcast-script .line { margin-bottom: 8px; }
+        .podcast-controls { padding: 16px 28px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
+        .podcast-controls select, .podcast-controls button {
+            padding: 10px 18px; border-radius: 10px; border: 1px solid var(--border);
+            font-size: 14px; cursor: pointer; background: var(--card);
+        }
+        .podcast-controls button.primary { background: var(--accent); color: white; border: none; }
+        .empty-state { text-align: center; padding: 80px 40px; color: var(--text2); }
+        .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+        .empty-state h2 { font-size: 20px; margin-bottom: 8px; color: var(--text); }
+        .toast {
+            position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+            background: #1a1a2e; color: white; padding: 12px 24px;
+            border-radius: 24px; font-size: 14px; font-weight: 600;
+            z-index: 200; opacity: 0; transition: opacity 0.3s; pointer-events: none;
+        }
+        .toast.show { opacity: 1; }
+        @media (max-width: 768px) {
+            body { flex-direction: column; }
+            .sidebar { width: 100%; height: auto; position: static; max-height: 40vh; }
+            .main { height: auto; min-height: 60vh; }
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h1>📚 智能研究助手</h1>
+            <div class="sub">上传文档 · AI 问答 · 播客生成</div>
+        </div>
+        <div class="upload-area" onclick="document.getElementById('file-input').click()">
+            📤 点击上传文档<br><small>支持 txt、md、pdf（文本）</small>
+            <input type="file" id="file-input" accept=".txt,.md,.pdf,.json,.csv" onchange="uploadFile(this)">
+        </div>
+        <div class="doc-list" id="doc-list">
+            <div style="padding:20px;text-align:center;color:#9ca3af;font-size:14px;">暂无文档</div>
+        </div>
+    </div>
+
+    <div class="main">
+        <div class="main-header">
+            <div class="tab active" onclick="switchView('chat')">💬 问答</div>
+            <div class="tab" onclick="switchView('podcast')">🎙️ 播客</div>
+        </div>
+
+        <div class="chat-area" id="chat-area">
+            <div class="empty-state">
+                <div class="icon">📖</div>
+                <h2>上传文档开始研究</h2>
+                <p>上传后可以提问、生成播客，所有回答都会标注来源</p>
+            </div>
+        </div>
+
+        <div class="podcast-area" id="podcast-area">
+            <div class="empty-state">
+                <div class="icon">🎙️</div>
+                <h2>生成播客对话</h2>
+                <p>选择文档和主题，AI 会生成双人播客脚本</p>
+            </div>
+        </div>
+
+        <div class="chat-input-area" id="chat-input-area">
+            <textarea id="query-input" placeholder="向文档提问..." rows="1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();askQuestion()}"></textarea>
+            <button onclick="askQuestion()">发送</button>
+        </div>
+
+        <div class="podcast-controls" id="podcast-controls" style="display:none">
+            <select id="podcast-doc">
+                <option value="">全部文档</option>
+            </select>
+            <input type="text" id="podcast-topic" placeholder="播客主题（可选）" style="padding:10px 16px;border-radius:10px;border:1px solid var(--border);font-size:14px;flex:1">
+            <button class="primary" onclick="generatePodcast()">生成播客脚本</button>
+        </div>
+    </div>
+    <div class="toast" id="toast"></div>
+
+<script>
+var API = '';
+var currentView = 'chat';
+var activeDocId = '';
+var allDocs = [];
+
+async function init() {
+    await loadDocs();
+}
+function switchView(view) {
+    currentView = view;
+    document.querySelectorAll('.tab').forEach(function(t,i) {
+        t.classList.toggle('active', (i===0 && view==='chat') || (i===1 && view==='podcast'));
+    });
+    document.getElementById('chat-area').style.display = view==='chat' ? 'block' : 'none';
+    document.getElementById('chat-input-area').style.display = view==='chat' ? 'flex' : 'none';
+    document.getElementById('podcast-area').style.display = view==='podcast' ? 'block' : 'none';
+    document.getElementById('podcast-controls').style.display = view==='podcast' ? 'flex' : 'none';
+    if (view==='podcast') updatePodcastSelect();
+}
+async function loadDocs() {
+    var res = await fetch(API + '/api/docs');
+    var data = await res.json();
+    allDocs = data.documents || [];
+    renderDocList();
+    updatePodcastSelect();
+}
+function renderDocList() {
+    var container = document.getElementById('doc-list');
+    if (!allDocs.length) {
+        container.innerHTML = '<div style="padding:20px;text-align:center;color:#9ca3af;font-size:14px;">暂无文档，点击上方上传</div>';
+        return;
+    }
+    var html = '';
+    allDocs.forEach(function(d) {
+        html += '<div class="doc-item' + (d.id === activeDocId ? ' active' : '') + '" onclick="selectDoc(\'' + d.id + '\')">';
+        html += '<span class="del" onclick="event.stopPropagation();deleteDoc(\'' + d.id + '\')">✕</span>';
+        html += '<div class="title">📄 ' + d.title + '</div>';
+        html += '<div class="meta">' + d.chunks + ' 段落 · ' + formatSize(d.size) + '</div>';
+        html += '</div>';
+    });
+    container.innerHTML = html;
+}
+function selectDoc(id) {
+    activeDocId = (activeDocId === id) ? '' : id;
+    renderDocList();
+}
+async function deleteDoc(id) {
+    await fetch(API + '/api/docs/' + id, {method:'DELETE'});
+    if (activeDocId === id) activeDocId = '';
+    await loadDocs();
+    toast('已删除');
+}
+async function uploadFile(input) {
+    var file = input.files[0];
+    if (!file) return;
+    var form = new FormData();
+    form.append('file', file);
+    toast('上传中...');
+    var res = await fetch(API + '/api/upload', {method:'POST', body:form});
+    var data = await res.json();
+    if (data.ok) {
+        toast('✅ 已上传，共 ' + data.doc.chunks + ' 个段落');
+        input.value = '';
+        await loadDocs();
+    } else {
+        toast('❌ 上传失败');
+    }
+}
+async function askQuestion() {
+    var input = document.getElementById('query-input');
+    var query = input.value.trim();
+    if (!query) return;
+    if (!allDocs.length) { toast('请先上传文档'); return; }
+
+    // Add user message
+    addMessage('user', query);
+    input.value = '';
+
+    // Add loading
+    var loadingId = addMessage('assistant', '⏳ 思考中...', true);
+
+    var res = await fetch(API + '/api/ask', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({query:query, doc_id:activeDocId})
+    });
+    var data = await res.json();
+
+    // Remove loading
+    removeMessage(loadingId);
+
+    // Show answer
+    var answerHtml = data.answer || '无回答';
+    if (data.sources && data.sources.length) {
+        answerHtml += '<div class="sources">';
+        data.sources.forEach(function(s) {
+            answerHtml += '<span class="source-tag">📎 ' + s.title + '</span>';
+        });
+        answerHtml += '</div>';
+    }
+    addMessage('assistant', answerHtml);
+}
+function addMessage(role, content, isTemp) {
+    var area = document.getElementById('chat-area');
+    // Remove empty state
+    var empty = area.querySelector('.empty-state');
+    if (empty) empty.remove();
+
+    var div = document.createElement('div');
+    div.className = 'chat-msg ' + role;
+    if (isTemp) div.id = 'temp-msg';
+    div.innerHTML = '<div class="bubble">' + content + '</div>';
+    area.appendChild(div);
+    area.scrollTop = area.scrollHeight;
+    return isTemp ? 'temp-msg' : null;
+}
+function removeMessage(id) {
+    var el = document.getElementById(id);
+    if (el) el.remove();
+}
+async function generatePodcast() {
+    if (!allDocs.length) { toast('请先上传文档'); return; }
+    var topic = document.getElementById('podcast-topic').value.trim() || '文档内容概览';
+    var docId = document.getElementById('podcast-doc').value;
+
+    var area = document.getElementById('podcast-area');
+    area.innerHTML = '<div class="empty-state"><div class="icon">⏳</div><h2>生成播客脚本中...</h2></div>';
+
+    var res = await fetch(API + '/api/podcast', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({doc_id: docId, topic: topic})
+    });
+    var data = await res.json();
+
+    if (data.error) {
+        area.innerHTML = '<div class="empty-state"><h2>❌ ' + data.error + '</h2></div>';
+        return;
+    }
+
+    // Render script with colored roles
+    var html = '<div class="podcast-script">';
+    html += '<h2 style="margin-bottom:16px">🎙️ ' + data.title + '</h2>';
+    var lines = data.script.split('\n');
+    lines.forEach(function(line) {
+        line = line.trim();
+        if (!line) return;
+        if (line.startsWith('[A]')) {
+            html += '<div class="line"><span class="host">🎤 主持人A：</span>' + line.substring(3) + '</div>';
+        } else if (line.startsWith('[B]')) {
+            html += '<div class="line"><span class="expert">🎓 专家B：</span>' + line.substring(3) + '</div>';
+        } else {
+            html += '<div class="line">' + line + '</div>';
+        }
+    });
+    html += '</div>';
+    area.innerHTML = html;
+    toast('✅ 播客脚本已生成');
+}
+function updatePodcastSelect() {
+    var sel = document.getElementById('podcast-doc');
+    sel.innerHTML = '<option value="">全部文档</option>';
+    allDocs.forEach(function(d) {
+        sel.innerHTML += '<option value="' + d.id + '">' + d.title + '</option>';
+    });
+}
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/(1024*1024)).toFixed(1) + ' MB';
+}
+function toast(msg) {
+    var el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(function(){ el.classList.remove('show'); }, 2500);
+}
+init();
+</script>
+</body>
+</html>
