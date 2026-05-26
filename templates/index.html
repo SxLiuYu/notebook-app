@@ -160,6 +160,8 @@
             .main { height: auto; min-height: 55vh; }
         }
     </style>
+
+<script src="/static/marked.min.js"></script>
 </head>
 <body>
     <div class="sidebar">
@@ -534,7 +536,11 @@ function addMessage(role, content, isTemp) {
     var div = document.createElement('div');
     div.className = 'chat-msg ' + role;
     if (isTemp) div.id = 'temp-msg';
-    div.innerHTML = '<div class="bubble">' + content + '</div>';
+    if (role === 'assistant' && typeof marked !== 'undefined') {
+            div.innerHTML = '<div class="bubble">' + marked.parse(content) + '</div>';
+        } else {
+            div.innerHTML = '<div class="bubble">' + content + '</div>';
+        }
     area.appendChild(div);
     area.scrollTop = area.scrollHeight;
     return isTemp ? 'temp-msg' : null;

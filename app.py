@@ -278,11 +278,7 @@ def ask():
             seen_titles.add(title)
         context_parts.append(f"[来源: {title}]" + chr(10) + r["chunk_text"])
     
-    context = "
-
----
-
-".join(context_parts)
+        context = "\\n\\n---\\n\\n".join(context_parts)
     
     messages = []
     if history:
@@ -295,7 +291,7 @@ def ask():
 - 只能基于提供的文档内容回答
 - 如果文档中没有相关信息，明确说"文档中没有提到这部分内容"
 - 回答要简洁、准确，引用具体信息
-- 用中文回答
+- 用中文回答，使用Markdown格式（标题、列表、表格、加粗等）让回答更清晰
 
 文档内容：
 {context}
@@ -333,17 +329,9 @@ def podcast():
     
     full_text = ""
     for doc in docs:
-        full_text += f"
-
-## {doc['title']}
-
-"
+        full_text += chr(10) + chr(10) + "## " + doc['title'] + chr(10) + chr(10)
         full_text += doc.get("full_text", "")
-    
-    if not topic:
-        topic = docs[0]["title"] if len(docs) == 1 else "多文档综合分析"
-    
-    output_dir = os.path.join(BASE_DIR, "static", "podcasts")
+        output_dir = os.path.join(BASE_DIR, "static", "podcasts")
     result = gen_podcast(full_text, topic, call_llm, output_dir)
     
     if result.get("error"):
@@ -398,8 +386,7 @@ def _generate_suggested_questions(text):
         return []
     
     questions = []
-    for line in response.split("
-"):
+    for line in response.split(chr(10)):
         line = line.strip()
         line = re.sub(r'^\d+[\.\)、]\s*', '', line)
         if line and len(line) > 5:
