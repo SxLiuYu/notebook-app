@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""NotebookLM-style RAG app — 文档上传、问答、播客生成"""
-import os, json, re, hashlib, time
+"""NotebookLM-style RAG app v2 — vector search, PDF support, multi-stage podcast with TTS."""
+import os, json, re, hashlib, time, gc
 from datetime import datetime
 from flask import Flask, request, jsonify, render_template, send_from_directory
 import requests
+
+from document_processor import process_file, summarize
+from rag_engine import add_documents, search, delete_document, get_stats, re_rank_with_llm
+from podcast_pipeline import generate_podcast as gen_podcast
 
 app = Flask(__name__, static_folder="static")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -11,14 +15,21 @@ DOCS_DIR = os.path.join(BASE_DIR, "data", "documents")
 INDEX_DIR = os.path.join(BASE_DIR, "data", "indexes")
 
 # FinnA config
-FINNA_KEY = "app-ULzJbc3OaIN50mZVSU7sAa97"
+FINNA_KEY = os.environ.get("FINNA_KEY", "app-ULzJbc3OaIN50mZVSU7sAa97")
 FINNA_BASE = "https://www.finna.com.cn/v1"
 LLM_MODEL = "deepseek-v4-flash"
 
 os.makedirs(DOCS_DIR, exist_ok=True)
 os.makedirs(INDEX_DIR, exist_ok=True)
+os.makedirs(os.path.join(BASE_DIR, "static", "podcasts"), exist_ok=True)
+os.makedirs(os.path.join(BASE_DIR, "data", "chroma_db"), exist_ok=True)
 
-# ─── Document Store ───
+# Set ChromaDB path for rag_engine
+import rag_engine
+rag_engine.CHROMA_PATH = os.path.join(BASE_DIR, "data", "chroma_db")
+
+
+# ─── Document Store (lightweight JSON for doc metadata) ───
 def load_docs():
     path = os.path.join(INDEX_DIR, "documents.json")
     if os.path.exists(path):
@@ -30,78 +41,6 @@ def save_docs(docs):
     with open(os.path.join(INDEX_DIR, "documents.json"), "w") as f:
         json.dump(docs, f, ensure_ascii=False, indent=2)
 
-def chunk_text(text, chunk_size=500, overlap=100):
-    """Split text into overlapping chunks for retrieval."""
-    # Split by paragraphs first
-    paragraphs = re.split(r'\n\s*\n', text)
-    chunks = []
-    current = ""
-    for p in paragraphs:
-        p = p.strip()
-        if not p:
-            continue
-        if len(current) + len(p) < chunk_size:
-            current += p + "\n\n"
-        else:
-            if current:
-                chunks.append(current.strip())
-            current = p + "\n\n"
-    if current:
-        chunks.append(current.strip())
-    
-    # If chunks are too small, merge; if too large, split
-    result = []
-    for c in chunks:
-        if len(c) > chunk_size * 2:
-            # Split by sentences
-            sentences = re.split(r'(?<=[。！？.!?])\s*', c)
-            sub = ""
-            for s in sentences:
-                if len(sub) + len(s) < chunk_size:
-                    sub += s
-                else:
-                    if sub:
-                        result.append(sub.strip())
-                    sub = s
-            if sub:
-                result.append(sub.strip())
-        else:
-            result.append(c)
-    return [r for r in result if len(r) > 20]
-
-def search_chunks(docs, query, top_k=5):
-    """Search across document chunks with Chinese-aware matching."""
-    query_lower = query.lower()
-    # For CJK text, use substring sliding window
-    # For English/spaced text, use word-level matching
-    scored = []
-    for doc in docs:
-        for i, chunk in enumerate(doc.get("chunks", [])):
-            chunk_lower = chunk.lower()
-            score = 0
-            # Direct substring match
-            if query_lower in chunk_lower:
-                score += 10
-            # Sliding window: check if significant parts of query match
-            # For Chinese: use 2-gram and 3-gram matching
-            if any(ord(c) > 0x2000 for c in query):  # has CJK characters
-                for n in [3, 2]:
-                    for j in range(len(query) - n + 1):
-                        ngram = query[j:j+n]
-                        if ngram in chunk_lower:
-                            score += 1
-            # Word-level for English
-            query_words = query_lower.split()
-            score += sum(2 for w in query_words if len(w) > 1 and w in chunk_lower)
-            # Bonus for title match
-            if query_lower in doc["title"].lower() or any(
-                len(w) > 1 and w in doc["title"].lower() for w in query_lower.split()
-            ):
-                score += 3
-            if score > 0:
-                scored.append((score, doc, i, chunk))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return scored[:top_k]
 
 # ─── LLM Call ───
 def call_llm(messages, max_tokens=2048):
@@ -113,7 +52,7 @@ def call_llm(messages, max_tokens=2048):
                 json={"model": LLM_MODEL, "messages": messages, "temperature": 0.3,
                       "max_tokens": max_tokens, "stream": False,
                       "extra_body": {"enable_thinking": False}},
-                timeout=60
+                timeout=90
             )
             data = resp.json()
             if "choices" in data:
@@ -123,6 +62,7 @@ def call_llm(messages, max_tokens=2048):
             time.sleep(2)
     return None
 
+
 # ─── Routes ───
 @app.route("/")
 def index():
@@ -131,18 +71,22 @@ def index():
 @app.route("/api/docs", methods=["GET"])
 def list_docs():
     docs = load_docs()
-    return jsonify({"documents": [{"id": d["id"], "title": d["title"], "created": d["created"],
-                                    "chunks": len(d.get("chunks", [])), "size": d.get("size", 0)} for d in docs]})
+    return jsonify({"documents": [
+        {"id": d["id"], "title": d["title"], "created": d["created"],
+         "chunks": d.get("chunk_count", 0), "size": d.get("size", 0),
+         "summary": d.get("summary", "")}
+        for d in docs
+    ]})
 
 @app.route("/api/docs/<doc_id>", methods=["DELETE"])
-def delete_doc(doc_id):
+def del_doc(doc_id):
     docs = load_docs()
     doc = next((d for d in docs if d["id"] == doc_id), None)
     if doc:
-        # Delete file
         filepath = os.path.join(DOCS_DIR, doc.get("filename", ""))
         if os.path.exists(filepath):
             os.remove(filepath)
+        delete_document(doc_id)
         docs = [d for d in docs if d["id"] != doc_id]
         save_docs(docs)
         return jsonify({"ok": True})
@@ -161,35 +105,55 @@ def upload():
     filepath = os.path.join(DOCS_DIR, filename)
     f.save(filepath)
     
-    # Read and chunk text
-    try:
-        text = open(filepath, "r", encoding="utf-8").read()
-    except UnicodeDecodeError:
-        text = open(filepath, "r", encoding="gbk", errors="ignore").read()
+    # Process document
+    result = process_file(filepath, filename)
+    chunks = result.get("chunks", [])
     
-    chunks = chunk_text(text)
+    if not chunks:
+        return jsonify({"error": "无法解析文档内容，请检查文件格式"}), 400
     
     doc_id = hashlib.md5(f"{filename}{time.time()}".encode()).hexdigest()[:12]
+    
+    # Index into vector store
+    add_documents(doc_id, chunks, {"title": filename, "source": filename})
+    
+    # Auto-generate summary
+    doc_summary = summarize(result["full_text"], 200)
+    
     doc = {
         "id": doc_id,
         "title": filename,
         "filename": filename,
         "created": datetime.now().isoformat(),
-        "size": len(text),
-        "chunks": chunks
+        "size": len(result["full_text"]),
+        "chunk_count": len(chunks),
+        "summary": doc_summary,
+        "full_text": result["full_text"]
     }
     
     docs = load_docs()
     docs.append(doc)
     save_docs(docs)
     
-    return jsonify({"ok": True, "doc": {"id": doc_id, "title": filename, "chunks": len(chunks)}})
+    # Generate suggested questions
+    suggested = _generate_suggested_questions(result["full_text"])
+    
+    gc.collect()
+    
+    return jsonify({
+        "ok": True,
+        "doc": {
+            "id": doc_id, "title": filename, "chunks": len(chunks),
+            "summary": doc_summary, "suggested": suggested
+        }
+    })
 
 @app.route("/api/ask", methods=["POST"])
 def ask():
     data = request.get_json()
     query = data.get("query", "").strip()
-    doc_id = data.get("doc_id", "")  # optional: limit to one doc
+    doc_id = data.get("doc_id", "")
+    history = data.get("history", [])  # [{role, content}]
     
     if not query:
         return jsonify({"error": "empty query"}), 400
@@ -201,29 +165,45 @@ def ask():
     if not docs:
         return jsonify({"answer": "请先上传文档。", "sources": []})
     
-    # Search
-    results = search_chunks(docs, query, top_k=5)
+    # Vector + BM25 hybrid search
+    doc_ids = [d["id"] for d in docs]
+    results = search(query, top_k=8, doc_ids=doc_ids)
+    
+    # LLM re-rank
+    if len(results) > 3:
+        ranked_indices = re_rank_with_llm(query, results, call_llm)
+        results = [results[i] for i in ranked_indices if i < len(results)]
     
     if not results:
         return jsonify({"answer": "在文档中没有找到相关内容。试试换个问法？", "sources": []})
     
-    # Build context
+    # Build context with unique sources
     context_parts = []
     sources = []
-    seen = set()
-    for score, doc, chunk_idx, chunk_text in results:
-        source_key = f"{doc['title']}"
-        if source_key not in seen:
-            sources.append({"title": doc["title"], "id": doc["id"]})
-            seen.add(source_key)
-        context_parts.append(f"[来源: {doc['title']}]\n{chunk_text}")
+    seen_titles = set()
+    
+    for r in results[:5]:
+        title = r["metadata"].get("title", r["metadata"].get("source", "Unknown"))
+        if title not in seen_titles:
+            sources.append({"title": title, "id": r["metadata"].get("doc_id", "")})
+            seen_titles.add(title)
+        context_parts.append(f"[来源: {title}]\n{r['chunk_text']}")
     
     context = "\n\n---\n\n".join(context_parts)
     
+    # Build messages with history
+    messages = []
+    if history:
+        for h in history[-6:]:  # Last 3 turns
+            messages.append({"role": h["role"], "content": h["content"]})
+    
     prompt = f"""你是一个智能研究助手。基于以下文档内容回答用户问题。
 
-如果文档中没有相关信息，请明确说"文档中没有提到这部分内容"。
-回答要简洁、准确，引用具体信息。
+规则：
+- 只能基于提供的文档内容回答
+- 如果文档中没有相关信息，明确说"文档中没有提到这部分内容"
+- 回答要简洁、准确，引用具体信息
+- 用中文回答
 
 文档内容：
 {context}
@@ -232,7 +212,8 @@ def ask():
 
 请回答："""
     
-    answer = call_llm([{"role": "user", "content": prompt}])
+    messages.append({"role": "user", "content": prompt})
+    answer = call_llm(messages)
     
     return jsonify({
         "answer": answer or "LLM 调用失败，请重试",
@@ -240,10 +221,10 @@ def ask():
     })
 
 @app.route("/api/podcast", methods=["POST"])
-def generate_podcast():
+def podcast():
     data = request.get_json()
     doc_id = data.get("doc_id", "")
-    topic = data.get("topic", "文档内容概览")
+    topic = data.get("topic", "").strip()
     
     docs = load_docs()
     if doc_id:
@@ -256,51 +237,76 @@ def generate_podcast():
     full_text = ""
     for doc in docs:
         full_text += f"\n\n## {doc['title']}\n\n"
-        full_text += "\n\n".join(doc.get("chunks", []))
+        full_text += doc.get("full_text", "")
     
-    if len(full_text) > 8000:
-        full_text = full_text[:8000] + "\n...(内容已截断)"
+    if not topic:
+        topic = docs[0]["title"] if len(docs) == 1 else "多文档综合分析"
     
-    prompt = f"""你是一个播客主持人。请基于以下文档内容，生成一段 5-8 分钟的播客对话脚本。
-
-格式要求：
-- 两个角色：主持人A（好奇提问者）和专家B（深度解读）
-- 用中文对话
-- 自然的口语表达，不要太书面
-- 标记角色：[A] 和 [B]
-- 控制在 1500-2500 字
-
-主题：{topic}
-
-文档内容：
-{full_text}
-
-请生成播客对话脚本："""
+    output_dir = os.path.join(BASE_DIR, "static", "podcasts")
+    result = gen_podcast(full_text, topic, call_llm, output_dir)
     
-    script = call_llm([{"role": "user", "content": prompt}], max_tokens=4096)
-    
-    if not script:
-        return jsonify({"error": "生成失败"}), 500
-    
-    # Parse script into segments
-    segments = []
-    for line in script.split("\n"):
-        line = line.strip()
-        if line.startswith("[A]") or line.startswith("[B]"):
-            role = "host" if line.startswith("[A]") else "expert"
-            text = line[3:].strip()
-            if text:
-                segments.append({"role": role, "text": text})
+    if result.get("error"):
+        return jsonify({"error": result["error"]}), 500
     
     return jsonify({
-        "script": script,
-        "segments": segments,
-        "title": topic
+        "script": result["script"],
+        "segments": result["segments"],
+        "audio_url": f"/static/podcasts/{os.path.basename(result['audio_path'])}" if result.get("audio_path") else None,
+        "title": topic,
+        "outline": result.get("outline", [])
     })
+
+@app.route("/api/suggest", methods=["POST"])
+def suggest():
+    """Generate suggested questions for a document."""
+    data = request.get_json()
+    doc_id = data.get("doc_id", "")
+    
+    docs = load_docs()
+    if doc_id:
+        docs = [d for d in docs if d["id"] == doc_id]
+    
+    if not docs:
+        return jsonify({"questions": []})
+    
+    full_text = docs[0].get("full_text", "")
+    questions = _generate_suggested_questions(full_text)
+    return jsonify({"questions": questions})
 
 @app.route("/api/health")
 def health():
-    return jsonify({"status": "ok", "docs": len(load_docs())})
+    stats = get_stats()
+    return jsonify({"status": "ok", "docs": len(load_docs()), "chunks": stats["total_chunks"]})
+
+
+def _generate_suggested_questions(text):
+    """Generate 3 follow-up questions based on document content."""
+    if len(text) < 100:
+        return []
+    
+    preview = text[:3000]
+    prompt = f"""基于以下文档内容，生成 3 个读者可能会问的问题。
+问题要具体、有深度，能引导深入理解文档内容。
+返回格式：每行一个问题，不要编号。
+
+文档：
+{preview}
+
+3 个问题："""
+    
+    response = call_llm([{"role": "user", "content": prompt}], max_tokens=300)
+    if not response:
+        return []
+    
+    questions = []
+    for line in response.split("\n"):
+        line = line.strip()
+        line = re.sub(r'^\d+[\.\)、]\s*', '', line)
+        if line and len(line) > 5:
+            questions.append(line)
+    
+    return questions[:3]
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8095, debug=False)
