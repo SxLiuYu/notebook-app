@@ -3,6 +3,27 @@
 import os, re, json, time, subprocess, tempfile
 
 
+
+def _tts_cosyvoice(text, voice="cosyvoice_v2_zh_male"):
+    """Call FinnA CosyVoice2 TTS. Returns audio bytes or None."""
+    try:
+        import requests as _req
+        resp = _req.post(
+            "https://www.finna.com.cn/v1/audio/speech",
+            headers={
+                "Authorization": "Bearer app-BqyKsTO4Om3JGoPCTkJX080J",
+                "Content-Type": "application/json"
+            },
+            json={"model": "cosyvoice-v2", "input": text,
+                  "voice": voice, "response_format": "mp3"},
+            timeout=30
+        )
+        if resp.status_code == 200 and len(resp.content) > 100:
+            return resp.content
+    except Exception as e:
+        print(f"CosyVoice2 TTS failed: {e}")
+    return None
+
 def generate_podcast(docs_text, topic, llm_call_fn, output_dir=None):
     """
     4-stage podcast generation pipeline.
@@ -140,30 +161,34 @@ def _generate_script(outline, points, topic, docs_text, llm_call_fn):
     )
     outline_text = "\n".join(outline)
     
-    prompt = f"""你是一个播客编剧。请基于以下大纲和观点，生成一段自然流畅的中文双人播客对话脚本。
+    prompt = f"""你是一个顶级播客脚本写手。请基于以下大纲和观点，写一段自然流畅、像真人对话的中文双人播客脚本（5-8分钟）。
 
 角色设定：
-[A] 主持人（25-35岁女性口吻）：
-- 性格：好奇心强、善于提问、偶尔幽默
-- 语言风格：口语化、短句为主、会说"等一下...""所以你的意思是..." "哇这个有意思"
-- 功能：代表听众提问、推动话题切换、总结要点方便听众理解
+[A] 小林（主持人，女性，反应快）：
+- 充满好奇心，善于追问和质疑。"等等，这个我没太懂"、"哇真的吗？"、"那换句话说就是..."
+- 语言口语化、句子短。"你知道吗"、"说实话"、"我举例子啊"
+- 偶尔打断专家："先等一下"、"我打断一下"
+- 可以笑、可以吐槽："哈哈"、"这个真没想到"
 
-[B] 专家（30-45岁男性口吻）：  
-- 性格：知识渊博但不装、善于用比喻和例子
-- 语言风格：沉稳但生动、会说"有趣的是..." "关键在于..." "打个比方..."
-- 功能：深度解读观点、引用文档证据、把复杂概念讲得通俗易懂
+[B] 王博士（专家，男性，有深度但不装）：
+- 爱用类比和故事解释复杂概念。"打个比方..."、"就像..."、"你想象一下..."
+- 偶尔自嘲或停顿："嗯...让我想想怎么说"、"这个可能有点绕"
+- 口语化表达："有趣的是"、"关键在于"、"你发现没有..."
+- 权威但不卖弄，偶尔说"其实吧"
 
-对话要求：
-- 自然的来回互动，有追问、有补充、有呼应
-- 话题间过渡要自然（"说到这个我突然想到..." "这个话题让我想起文档里另一个点..."）
-- 可以适当加口语词（"嗯""就是说""其实吧"）增加真实感
-- 偶尔有2-3句话的 banter（轻松互动）来调节节奏
+对话风格（重要！）：
+- 大量口语化：用"你知道吗"、"说实话"、"有意思的是"替代正式表达
+- 主持人可以打断："等等"、"先等一下"、"我打断一下"
+- 专家有自然的停顿："嗯..."、"怎么说呢..."
+- 偶尔笑声/互动："哈哈"、"对对对"、"这个真没想到"
+- 每段 2-4 句话，不要长段落（播客是听的！）
+- 话题过渡要自然："说到这个..."、"这让我想起来..."
+- 节奏有张有弛：重要观点放慢说，过渡可以快
 - 控制在 2000-3000 字
 
 格式：
-[A] 主持人的话...
-[B] 专家的话...
-[A] ...
+[小林] 对话内容...
+[王博士] 对话内容...
 （交替进行）
 
 播客主题：{topic}
@@ -177,25 +202,27 @@ def _generate_script(outline, points, topic, docs_text, llm_call_fn):
 文档原文（参考）：
 {docs_text[:2000]}
 
-请生成完整的播客对话脚本："""
+请直接输出对话脚本："""
     
     script_text = llm_call_fn([{"role": "user", "content": prompt}], max_tokens=4096)
     
     if not script_text:
         return None
     
-    # Parse segments
+    # Parse segments (supports [A]/[B] and [小林]/[王博士] formats)
     segments = []
     for line in script_text.split("\n"):
         line = line.strip()
         if not line:
             continue
-        if line.startswith("[A]") or line.startswith("[A]") or line.startswith("A]"):
-            text = re.sub(r'^\[?A\]?\s*', '', line).strip()
+        # Match host roles: [A], A], [小林], 小林]
+        if re.match(r'^\[?(?:A|小林)\]?', line):
+            text = re.sub(r'^\[?(?:A|小林)\]?\s*', '', line).strip()
             if text:
                 segments.append({"role": "host", "text": text})
-        elif line.startswith("[B]") or line.startswith("B]"):
-            text = re.sub(r'^\[?B\]?\s*', '', line).strip()
+        # Match expert roles: [B], B], [王博士], 王博士]
+        elif re.match(r'^\[?(?:B|王博士)\]?', line):
+            text = re.sub(r'^\[?(?:B|王博士)\]?\s*', '', line).strip()
             if text:
                 segments.append({"role": "expert", "text": text})
     
@@ -229,9 +256,14 @@ def _render_audio(segments, output_dir, title):
     segment_dir = tempfile.mkdtemp(prefix="podcast_segments_")
     wav_files = []
     
+    # CosyVoice2 voice mapping (FinnA)
+    COSY_VOICES = {
+        "host": "cosyvoice_v2_zh_female",
+        "expert": "cosyvoice_v2_zh_male",
+    }
+    
     try:
         for i, seg in enumerate(segments):
-            voice = VOICES.get(seg["role"], "zh-CN-XiaoxiaoNeural")
             text = seg["text"]
             
             if len(text) < 2:
@@ -239,7 +271,18 @@ def _render_audio(segments, output_dir, title):
             
             output_file = os.path.join(segment_dir, f"seg_{i:04d}.mp3")
             
-            # edge-tts async in sync wrapper
+            # Try CosyVoice2 first
+            cosy_voice = COSY_VOICES.get(seg["role"], "cosyvoice_v2_zh_male")
+            audio_bytes = _tts_cosyvoice(text, cosy_voice)
+            if audio_bytes:
+                with open(output_file, "wb") as f:
+                    f.write(audio_bytes)
+                wav_files.append(output_file)
+                continue
+            
+            # Fallback to edge-tts
+            voice = VOICES.get(seg["role"], "zh-CN-XiaoxiaoNeural")
+            
             import asyncio
             
             async def _tts():
@@ -250,7 +293,7 @@ def _render_audio(segments, output_dir, title):
                 asyncio.run(_tts())
                 wav_files.append(output_file)
             except Exception as e:
-                print(f"TTS segment {i} failed: {e}")
+                print(f"TTS segment {i} failed (edge-tts): {e}")
                 continue
         
         if not wav_files:

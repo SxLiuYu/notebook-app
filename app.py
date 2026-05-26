@@ -255,7 +255,7 @@ def ask():
             docs = [d for d in docs if d.get("folder_id") == folder_id]
     
     if not docs:
-        return jsonify({"answer": "请先上传文档。", "sources": []})
+        return jsonify({"answer": "请先上传文档。", "sources": [], "citations": []})
     
     doc_ids = [d["id"] for d in docs]
     results = search(query, top_k=8, doc_ids=doc_ids)
@@ -265,20 +265,32 @@ def ask():
         results = [results[i] for i in ranked_indices if i < len(results)]
     
     if not results:
-        return jsonify({"answer": "在文档中没有找到相关内容。试试换个问法？", "sources": []})
+        return jsonify({"answer": "在文档中没有找到相关内容。试试换个问法？", "sources": [], "citations": []})
     
+    # Build context with citation markers + citations array
     context_parts = []
+    citations = []
     sources = []
     seen_titles = set()
     
-    for r in results[:5]:
+    for i, r in enumerate(results[:5]):
         title = r["metadata"].get("title", r["metadata"].get("source", "Unknown"))
+        doc_id_val = r["metadata"].get("doc_id", "")
         if title not in seen_titles:
-            sources.append({"title": title, "id": r["metadata"].get("doc_id", "")})
+            sources.append({"title": title, "id": doc_id_val})
             seen_titles.add(title)
-        context_parts.append(f"[来源: {title}]" + chr(10) + r["chunk_text"])
+        
+        cite_idx = i + 1
+        chunk_text = r["chunk_text"]
+        context_parts.append(f"[引用{cite_idx}] [来源: {title}]\n{chunk_text}")
+        citations.append({
+            "index": cite_idx,
+            "text": chunk_text[:150],
+            "title": title,
+            "doc_id": doc_id_val
+        })
     
-        context = "\\n\\n---\\n\\n".join(context_parts)
+    context = "\n\n---\n\n".join(context_parts)
     
     messages = []
     if history:
@@ -288,12 +300,13 @@ def ask():
     prompt = f"""你是一个智能研究助手。基于以下文档内容回答用户问题。
 
 规则：
-- 只能基于提供的文档内容回答
-- 如果文档中没有相关信息，明确说"文档中没有提到这部分内容"
-- 回答要简洁、准确，引用具体信息
-- 用中文回答，使用Markdown格式（标题、列表、表格、加粗等）让回答更清晰
+- 只能基于提供的文档内容回答，文档中没有的信息明确说"文档中没有提到"
+- 每个事实性论断必须标注引用编号，格式：[引用N]
+- 引用编号必须与上下文中的 [引用N] 完全对应
+- 如果信息来自多个文档，明确指出差异（如"根据《A》...而《B》则..."）
+- 回答简洁、准确，用中文 + Markdown
 
-文档内容：
+文档内容（标注了引用编号的原文片段）：
 {context}
 
 用户问题：{query}
@@ -305,7 +318,27 @@ def ask():
     
     return jsonify({
         "answer": answer or "LLM 调用失败，请重试",
+        "citations": citations,
         "sources": sources
+    })
+
+@app.route("/api/docs/<doc_id>/fulltext")
+def get_doc_fulltext(doc_id):
+    """Return full document text with chunk index mapping."""
+    docs = load_docs()
+    doc = next((d for d in docs if d["id"] == doc_id), None)
+    if not doc:
+        return jsonify({"error": "not found"}), 404
+    
+    results = search("", top_k=1000, doc_ids=[doc_id])
+    chunks = []
+    for i, r in enumerate(results):
+        chunks.append({"index": i, "text": r["chunk_text"]})
+    
+    return jsonify({
+        "title": doc["title"],
+        "full_text": doc.get("full_text", ""),
+        "chunks": chunks
     })
 
 @app.route("/api/podcast", methods=["POST"])
@@ -484,6 +517,138 @@ def _generate_suggested_questions(text):
     
     return questions[:3]
 
+
+
+@app.route("/whitelist")
+def whitelist_page():
+    """403 redirect target — show IP whitelist request page."""
+    ip = request.args.get("ip", request.remote_addr or "unknown")
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>访问受限 — Notebook</title>
+<style>
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
+body {{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0f172a; color: #e2e8f0;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 20px;
+}}
+.card {{
+    background: #1e293b; border-radius: 16px; padding: 40px;
+    max-width: 440px; width: 100%; text-align: center;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.4);
+}}
+.icon {{ font-size: 56px; margin-bottom: 16px; }}
+h1 {{ font-size: 22px; margin-bottom: 8px; }}
+.ip-box {{
+    background: #0f172a; border-radius: 8px; padding: 12px 20px;
+    margin: 20px 0; font-family: monospace; font-size: 16px;
+    color: #38bdf8; letter-spacing: 1px;
+}}
+p {{ color: #94a3b8; font-size: 14px; line-height: 1.6; margin-bottom: 24px; }}
+.btn {{
+    display: inline-block; background: #3b82f6; color: white;
+    border: none; border-radius: 10px; padding: 14px 32px;
+    font-size: 16px; font-weight: 600; cursor: pointer;
+    transition: background 0.2s; text-decoration: none;
+}}
+.btn:hover {{ background: #2563eb; }}
+.btn:disabled {{ background: #475569; cursor: not-allowed; }}
+#msg {{ margin-top: 16px; font-size: 14px; min-height: 24px; }}
+.success {{ color: #34d399; }}
+.error {{ color: #f87171; }}
+</style>
+</head>
+<body>
+<div class="card">
+    <div class="icon">🔒</div>
+    <h1>IP 未在白名单中</h1>
+    <div class="ip-box">{ip}</div>
+    <p>你的设备 IP 不在访问白名单中。<br>点击下方按钮申请加白，管理员审核后即可访问。</p>
+    <button class="btn" onclick="requestAccess()" id="btn">📩 申请加白</button>
+    <div id="msg"></div>
+</div>
+<script>
+async function requestAccess() {{
+    const btn = document.getElementById('btn');
+    const msg = document.getElementById('msg');
+    btn.disabled = true;
+    btn.textContent = '⏳ 提交中…';
+    msg.className = '';
+    msg.textContent = '';
+    try {{
+        const r = await fetch('/api/whitelist/add', {{
+            method: 'POST',
+            headers: {{'Content-Type': 'application/json'}},
+            body: JSON.stringify({{ip: '{ip}'}})
+        }});
+        const data = await r.json();
+        if (r.ok) {{
+            msg.className = 'success';
+            msg.textContent = data.message || '✅ 加白成功！请刷新页面';
+            btn.textContent = '🔄 刷新页面';
+            btn.onclick = () => location.href = '/';
+        }} else {{
+            msg.className = 'error';
+            msg.textContent = data.error || '提交失败';
+            btn.disabled = false;
+            btn.textContent = '📩 申请加白';
+        }}
+    }} catch(e) {{
+        msg.className = 'error';
+        msg.textContent = '网络错误: ' + e.message;
+        btn.disabled = false;
+        btn.textContent = '📩 申请加白';
+    }}
+}}
+</script>
+</body>
+</html>"""
+
+
+@app.route("/api/whitelist/add", methods=["POST"])
+def whitelist_add():
+    """Add an IP to nginx whitelist and reload."""
+    from flask import request, jsonify
+    import subprocess, re
+
+    data = request.get_json(silent=True) or {}
+    ip = data.get("ip", "").strip()
+    if not ip or not re.match(r'^[\d.]+$', ip):
+        return jsonify({"error": "无效的 IP 地址"}), 400
+
+    nginx_conf = "/etc/nginx/sites-available/notebook"
+    try:
+        with open(nginx_conf, 'r') as f:
+            config = f.read()
+
+        # Check if already whitelisted
+        if f"allow {ip};" in config:
+            return jsonify({"message": f"IP {ip} 已在白名单中，请刷新页面"})
+
+        # Insert allow directive before "deny all;"
+        new_config = config.replace("deny all;", f"allow {ip};\n        deny all;")
+
+        with open(nginx_conf, 'w') as f:
+            f.write(new_config)
+
+        # Test and reload nginx
+        result = subprocess.run(["nginx", "-t"], capture_output=True, text=True, timeout=10)
+        if result.returncode != 0:
+            # Rollback
+            with open(nginx_conf, 'w') as f:
+                f.write(config)
+            return jsonify({"error": f"nginx 配置验证失败: {result.stderr}"}), 500
+
+        subprocess.run(["systemctl", "reload", "nginx"], timeout=10)
+        return jsonify({"message": f"✅ IP {ip} 已加白！请刷新页面访问"})
+
+    except Exception as e:
+        return jsonify({"error": f"加白失败: {str(e)}"}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8095, debug=False)
