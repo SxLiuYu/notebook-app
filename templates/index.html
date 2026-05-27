@@ -4,8 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Notebook — AI 研究助手</title>
-<script src="/static/marked.min.js">
-</script>
+<script src="/static/marked.min.js"></script>
 <style>
 :root {
   --bg: #faf7f2;
@@ -238,65 +237,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   .main{height:auto;min-height:62vh}
   .chat-inner,.podcast-inner{padding:20px 16px}
 }
-
-/* KNOWLEDGE PANEL */
-.knowledge-panel{
-  width:340px;min-width:280px;background:var(--card);border-left:1px solid var(--border);
-  display:flex;flex-direction:column;height:100vh;overflow:hidden;transition:width .3s
-}
-.knowledge-panel.collapsed{width:0;min-width:0;border-left:none;overflow:hidden}
-.kp-header{
-  padding:16px 20px;border-bottom:1px solid var(--border-light);
-  display:flex;align-items:center;justify-content:space-between;flex-shrink:0
-}
-.kp-header h3{font-size:15px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:8px}
-.kp-header .kp-actions{display:flex;gap:6px}
-.kp-header .kp-actions button{
-  background:none;border:1px solid var(--border);border-radius:6px;
-  padding:4px 8px;cursor:pointer;font-size:13px;color:var(--text2);transition:all .2s
-}
-.kp-header .kp-actions button:hover{background:var(--accent-light);color:var(--accent);border-color:var(--accent)}
-.kp-content{flex:1;overflow-y:auto;padding:16px 20px}
-.kp-content::-webkit-scrollbar{width:5px}
-.kp-content::-webkit-scrollbar-thumb{background:#dadce0;border-radius:5px}
-.kp-section{margin-bottom:20px}
-.kp-section h4{
-  font-size:13px;font-weight:600;color:var(--accent);margin-bottom:10px;
-  padding-bottom:6px;border-bottom:2px solid var(--accent-light);display:flex;align-items:center;gap:6px
-}
-.kp-concept{padding:6px 0;font-size:13px;line-height:1.5;color:var(--text)}
-.kp-concept strong{color:var(--accent-dark)}
-.kp-topic{margin-bottom:12px}
-.kp-topic .topic-title{
-  font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px;
-  padding:6px 10px;background:var(--accent-light);border-radius:6px
-}
-.kp-topic ul{margin:0;padding-left:18px}
-.kp-topic li{font-size:13px;color:var(--text2);margin-bottom:4px;line-height:1.5}
-.kp-conclusion{padding:6px 0;font-size:13px;color:var(--text);line-height:1.5}
-.kp-empty{text-align:center;color:var(--text3);padding:40px 20px;font-size:13px}
-.kp-empty .kp-empty-icon{font-size:36px;margin-bottom:12px}
-.kp-loading{text-align:center;color:var(--text3);padding:40px 20px;font-size:13px}
-.kp-loading .spinner{
-  width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--accent);
-  border-radius:50%;animation:kp-spin .8s linear infinite;margin:0 auto 12px
-}
-@keyframes kp-spin{to{transform:rotate(360deg)}}
-.kp-toggle{
-  position:fixed;right:0;top:50%;transform:translateY(-50%);
-  background:var(--accent);color:#fff;border:none;border-radius:8px 0 0 8px;
-  padding:12px 8px;cursor:pointer;font-size:13px;writing-mode:vertical-rl;
-  z-index:10;box-shadow:-2px 0 8px rgba(0,0,0,.1);transition:all .3s
-}
-.kp-toggle:hover{background:var(--accent-dark);padding-right:12px}
-@media (max-width:900px){
-  .knowledge-panel{
-    position:fixed;right:0;top:0;bottom:0;z-index:100;
-    box-shadow:-4px 0 20px rgba(0,0,0,.15)
-  }
-  .knowledge-panel.collapsed{display:none}
-}
-
 </style>
 </head>
 <body>
@@ -374,25 +314,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   </div>
 
   <!-- PODCAST CONTROLS -->
-  <div class="podcast-controls" id="po
-<!-- KNOWLEDGE PANEL -->
-<button class="kp-toggle" id="kp-toggle" onclick="toggleKnowledgePanel()" title="知识梳理">知识梳理</button>
-<div class="knowledge-panel collapsed" id="knowledge-panel">
-  <div class="kp-header">
-    <h3>🧠 知识梳理</h3>
-    <div class="kp-actions">
-      <button onclick="loadKnowledge()" title="重新梳理">🔄</button>
-      <button onclick="toggleKnowledgePanel()" title="收起">✕</button>
-    </div>
-  </div>
-  <div class="kp-content" id="kp-content">
-    <div class="kp-empty">
-      <div class="kp-empty-icon">📚</div>
-      <div>选择文档后点击梳理<br>提取核心概念、主题结构和关键结论</div>
-    </div>
-  </div>
-</div>
-dcast-controls" style="display:none">
+  <div class="podcast-controls" id="podcast-controls" style="display:none">
     <select id="podcast-doc"><option value="">全部文档</option></select>
     <input id="podcast-topic" placeholder="播客主题（可选）">
     <button class="primary" onclick="generatePodcast()">🎙️ 生成播客</button>
@@ -575,41 +497,6 @@ function updatePodcastSelect(){
   allDocs.forEach(function(d){s.innerHTML+='<option value="'+d.id+'">'+d.title+'</option>'})
 }
 init();
-
-/* ─── Knowledge Panel ─── */
-var knowledgeLoaded=false;
-function toggleKnowledgePanel(){
-  var p=document.getElementById('knowledge-panel');
-  p.classList.toggle('collapsed');
-  if(!p.classList.contains('collapsed')&&!knowledgeLoaded&&(activeDocId||activeFolderId))loadKnowledge();
-}
-async function loadKnowledge(){
-  var p=document.getElementById('kp-content');
-  p.innerHTML='<div class="kp-loading"><div class="spinner"></div><div>梳理中...</div></div>';
-  if(!activeDocId&&!activeFolderId){p.innerHTML='<div class="kp-empty"><div class="kp-empty-icon">📚</div><div>请先选择文档或分类</div></div>';return}
-  try{
-    var b={};if(activeDocId)b.doc_id=activeDocId;if(activeFolderId)b.folder_id=activeFolderId;
-    var r=await fetch(API+'/api/knowledge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
-    var d=await r.json();
-    if(d.error){p.innerHTML='<div class="kp-empty"><div class="kp-empty-icon">⚠️</div><div>'+d.error+'</div></div>';return}
-    var h='';
-    if(d.concepts&&d.concepts.length){h+='<div class="kp-section"><h4>💡 核心概念</h4>';d.concepts.forEach(function(c){h+='<div class="kp-concept">'+c+'</div>'});h+='</div>'}
-    if(d.topics&&d.topics.length){h+='<div class="kp-section"><h4>🗂️ 主题结构</h4>';d.topics.forEach(function(t){h+='<div class="kp-topic"><div class="topic-title">'+t.title+'</div><ul>';t.items.forEach(function(i){h+='<li>'+i+'</li>'});h+='</ul></div>'});h+='</div>'}
-    if(d.conclusions&&d.conclusions.length){h+='<div class="kp-section"><h4>📌 关键结论</h4>';d.conclusions.forEach(function(c){h+='<div class="kp-conclusion">'+c+'</div>'});h+='</div>'}
-    if(!d.concepts.length&&!d.topics.length&&!d.conclusions.length&&d.raw){h+='<div class="kp-section"><h4>📋 梳理结果</h4><div style="font-size:13px;line-height:1.6;color:var(--text);white-space:pre-wrap">'+d.raw.replace(/</g,'&lt;')+'</div></div>'}
-    p.innerHTML=h||'<div class="kp-empty"><div class="kp-empty-icon">📭</div><div>未能提取结构化知识，请重试</div></div>';
-    knowledgeLoaded=true
-  }catch(e){p.innerHTML='<div class="kp-empty"><div class="kp-empty-icon">❌</div><div>梳理失败: '+e.message+'</div></div>'}
-}
-var _origSelectDoc=selectDoc;
-selectDoc=function(id){
-  _origSelectDoc(id);
-  knowledgeLoaded=false;
-  var p=document.getElementById('knowledge-panel');
-  if(activeDocId&&!p.classList.contains('collapsed'))loadKnowledge();
-};
-
-
 </script>
 </body>
 </html>
