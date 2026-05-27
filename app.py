@@ -411,33 +411,23 @@ def knowledge():
         context_parts.append(f"## {title}\n" + "\n\n".join(chunks))
     context = "\n\n---\n\n".join(context_parts)
     
-    prompt = f"""你是一个知识管理专家。请基于以下文档内容，提取并梳理知识结构。
+    prompt = f"""基于以下文档，提取知识结构。用中文，简洁扼要。
 
-要求：
-1. 提取所有核心概念和关键术语，每个附带简短解释
-2. 识别主要主题/话题，按层级组织
-3. 找出重要的结论或要点
-4. 用中文输出，使用简洁的 Markdown 格式
-
-输出格式：
 ## 核心概念
-- **概念1**：一句话解释
-- **概念2**：一句话解释
+- **术语**：一句话解释
 
 ## 主题结构
-### 主题 A
+### 主题
 - 要点
 
 ## 关键结论
 1. 结论
 
-文档内容：
-{context}
-
-请梳理："""
+文档：
+{context}"""
 
     messages = [{"role": "user", "content": prompt}]
-    answer = call_llm(messages, max_tokens=3072)
+    answer = call_llm(messages, max_tokens=1536)
     
     sections = {"concepts": [], "topics": [], "conclusions": [], "raw": answer or ""}
     

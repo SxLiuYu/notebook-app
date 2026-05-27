@@ -275,6 +275,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   .chat-layout .chat-knowledge{width:240px;min-width:200px}
 }
 
+.ck-raw{font-size:12.5px;line-height:1.6;color:var(--text)}.ck-raw p{margin-bottom:6px}.ck-raw strong{color:var(--accent-dark)}.ck-raw ul,.ck-raw ol{padding-left:16px;margin-bottom:6px}.ck-raw li{margin-bottom:2px}
 </style>
 </head>
 <body>
@@ -565,10 +566,28 @@ async function loadKnowledge(){
     var d=await r.json();
     if(d.error){c.innerHTML='<div class="ck-empty">⚠️ '+d.error+'</div>';knowledgeLoaded=true;return}
     var h='';
-    if(d.concepts&&d.concepts.length){h+='<div class="ck-section"><h5>💡 核心概念</h5>';d.concepts.forEach(function(x){h+='<div class="ck-concept">'+x+'</div>'});h+='</div>'}
-    if(d.topics&&d.topics.length){h+='<div class="ck-section"><h5>🗂 主题结构</h5>';d.topics.forEach(function(t){h+='<div class="ck-topic"><div class="topic-title">'+t.title+'</div><ul>';t.items.forEach(function(i){h+='<li>'+i+'</li>'});h+='</ul></div>'});h+='</div>'}
-    if(d.conclusions&&d.conclusions.length){h+='<div class="ck-section"><h5>📌 关键结论</h5>';d.conclusions.forEach(function(x){h+='<div class="ck-conclusion">'+x+'</div>'});h+='</div>'}
-    if(!d.concepts.length&&!d.topics.length&&!d.conclusions.length&&d.raw){h+='<div class="ck-section"><h5>📋 梳理结果</h5><div style="font-size:12.5px;line-height:1.6;color:var(--text);white-space:pre-wrap">'+d.raw.replace(/</g,'&lt;')+'</div></div>'}
+    if(d.concepts&&d.concepts.length){
+      h+='<div class="ck-section"><h5>💡 核心概念</h5>';
+      d.concepts.forEach(function(x){h+='<div class="ck-concept">'+marked.parse(x)+'</div>'});
+      h+='</div>'
+    }
+    if(d.topics&&d.topics.length){
+      h+='<div class="ck-section"><h5>🗂 主题结构</h5>';
+      d.topics.forEach(function(t){
+        h+='<div class="ck-topic"><div class="topic-title">'+t.title+'</div><ul>';
+        t.items.forEach(function(i){h+='<li>'+marked.parseInline(i)+'</li>'});
+        h+='</ul></div>'
+      });
+      h+='</div>'
+    }
+    if(d.conclusions&&d.conclusions.length){
+      h+='<div class="ck-section"><h5>📌 关键结论</h5>';
+      d.conclusions.forEach(function(x){h+='<div class="ck-conclusion">'+marked.parse(x)+'</div>'});
+      h+='</div>'
+    }
+    if(!d.concepts.length&&!d.topics.length&&!d.conclusions.length&&d.raw){
+      h+='<div class="ck-section"><h5>📋 梳理结果</h5><div class="ck-raw">'+marked.parse(d.raw)+'</div></div>'
+    }
     c.innerHTML=h||'<div class="ck-empty">未能提取结构化知识</div>';
     knowledgeLoaded=true
   }catch(e){c.innerHTML='<div class="ck-empty">❌ 梳理失败: '+e.message+'</div>'}
