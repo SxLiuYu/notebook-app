@@ -254,6 +254,9 @@ def ask():
         else:
             docs = [d for d in docs if d.get("folder_id") == folder_id]
     
+    if not doc_id and not folder_id:
+        return jsonify({"error": "请先选择文档或分类"}), 400
+    
     if not docs:
         return jsonify({"answer": "请先上传文档。", "sources": []})
     
@@ -324,6 +327,9 @@ def podcast():
         else:
             docs = [d for d in docs if d.get("folder_id") == folder_id]
     
+    if not doc_id and not folder_id:
+        return jsonify({"error": "请先选择文档或分类"}), 400
+    
     if not docs:
         return jsonify({"error": "请先上传文档"}), 400
     
@@ -354,6 +360,9 @@ def suggest():
     if doc_id:
         docs = [d for d in docs if d["id"] == doc_id]
     
+    if not doc_id and not folder_id:
+        return jsonify({"error": "请先选择文档或分类"}), 400
+    
     if not docs:
         return jsonify({"questions": []})
     
@@ -377,6 +386,9 @@ def knowledge():
             docs = [d for d in docs if not d.get("folder_id")]
         else:
             docs = [d for d in docs if d.get("folder_id") == folder_id]
+    
+    if not doc_id and not folder_id:
+        return jsonify({"error": "请先选择文档或分类"}), 400
     
     if not docs:
         return jsonify({"error": "请先选择文档"}), 400
