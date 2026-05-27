@@ -226,7 +226,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .toast.show{opacity:1}
 
 /* Chat layout: two columns when doc selected */
-.chat-layout{display:flex;flex:1;overflow:hidden}
+.chat-layout{display:flex;flex:1;min-height:0}
 .chat-layout .chat-messages{flex:1;overflow-y:auto;min-width:0}
 .chat-layout .chat-knowledge{
   width:300px;min-width:260px;border-left:1px solid var(--border);
@@ -265,24 +265,24 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 
 /* ─── Mobile Responsive ─── */
 @media (max-width:768px){
-  body{flex-direction:column}
+  body{flex-direction:column;overflow-y:auto}
   .sidebar{
     width:100%;height:auto;max-height:42vh;border-right:none;
-    border-bottom:1px solid var(--border);flex-shrink:0
+    border-bottom:1px solid var(--border);flex-shrink:0;overflow-y:auto
   }
   .sidebar.collapsed{max-height:0;overflow:hidden;border-bottom:none}
-  .main{height:auto;flex:1;min-height:0}
-  .main-header{padding:8px 12px}
+  .main{height:auto;flex:1;min-height:0;overflow:hidden}
+  .main-header{padding:8px 12px;flex-shrink:0}
   .main-header .tab{padding:6px 14px;font-size:13px}
   .chat-inner,.podcast-inner{padding:16px 12px}
-  .chat-layout{flex-direction:column}
-  .chat-layout .chat-messages{flex:1;min-height:200px}
+  .chat-layout{flex-direction:column;min-height:0}
+  .chat-layout .chat-messages{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
   .chat-layout .chat-knowledge{
     width:100%;min-width:0;max-height:40vh;border-left:none;
-    border-top:1px solid var(--border);display:none
+    border-top:1px solid var(--border);display:none;overflow-y:auto
   }
   .chat-layout .chat-knowledge.visible{display:block}
-  .chat-input-wrap{padding:10px 12px}
+  .chat-input-wrap{padding:10px 12px;flex-shrink:0}
   .chat-input-inner textarea{font-size:15px}
   .chat-input-inner button{padding:10px 16px;font-size:14px}
   .podcast-controls{flex-wrap:wrap;gap:6px;padding:10px 12px}
@@ -290,11 +290,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   .podcast-controls button.primary{width:100%}
   .chat-msg .bubble{font-size:14px}
   .chat-msg .source-tag{font-size:11px;padding:2px 6px}
-  /* Sidebar toggle button */
   .sidebar-toggle{
     display:flex;align-items:center;justify-content:center;
     padding:8px;background:var(--card);border-bottom:1px solid var(--border);
-    cursor:pointer;font-size:14px;color:var(--text2);gap:6px
+    cursor:pointer;font-size:14px;color:var(--text2);gap:6px;flex-shrink:0
   }
   .sidebar-toggle:hover{background:var(--accent-light)}
 }
