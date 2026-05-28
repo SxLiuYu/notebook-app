@@ -762,6 +762,125 @@ def feynman():
     return jsonify({"error": "无效的 action"}), 400
 
 
+
+@app.route("/api/link", methods=["POST"])
+def link():
+    """跨文档知识关联：发现不同文档中概念之间的联系"""
+    data = request.get_json()
+    folder_id = data.get("folder_id", "")
+
+    docs = load_docs()
+    if folder_id:
+        if folder_id == "uncategorized":
+            docs = [d for d in docs if not d.get("folder_id")]
+        else:
+            docs = [d for d in docs if d.get("folder_id") == folder_id]
+
+    if len(docs) < 2:
+        return jsonify({"error": "至少需要 2 份文档才能做知识关联。请上传更多文档或选择一个分类"}), 400
+
+    # Phase 1: Extract key concepts from each document
+    doc_concepts = []
+    for doc in docs:
+        # Search for substantive content in each doc
+        chunks = search("核心 概念 定义 原理 方法 框架 模型 理论 公式 分类 特点 作用",
+                        top_k=5, doc_ids=[doc["id"]])
+        if not chunks:
+            chunks = search("内容 说明 介绍", top_k=3, doc_ids=[doc["id"]])
+        if chunks:
+            text = "\n".join([c["chunk_text"][:500] for c in chunks[:3]])
+            doc_concepts.append({
+                "id": doc["id"],
+                "title": doc["title"],
+                "excerpt": text[:1500]
+            })
+
+    if len(doc_concepts) < 2:
+        return jsonify({"error": "文档中没有足够的内容用于关联分析"}), 404
+
+    # Phase 2: Build context for LLM
+    context_parts = []
+    for dc in doc_concepts:
+        context_parts.append(f"## [{dc['title']}]\n{dc['excerpt']}")
+    context = "\n\n".join(context_parts)
+
+    prompt = f"""你是知识图谱专家。分析以下多份文档，发现它们之间的深层关联。
+
+## 文档内容
+{context}
+
+## 要求
+
+找出文档之间的**实质性关联**（不是表面的"都讲了XX"），包括：
+
+1. **同一概念的不同表述**：A 文档的 X = B 文档的 Y（不同说法，同一件事）
+2. **互补关系**：A 文档讲了理论，B 文档给了实践案例
+3. **层级关系**：A 文档是 B 文档的基础/前提
+4. **矛盾或张力**：A 文档和 B 文档对同一问题的观点不同
+5. **意外关联**：表面无关但内在逻辑相通的概念
+
+## 输出格式
+
+用中文，每条关联一行，格式：
+```
+[文档A] 的「概念A」← 关系类型 → [文档B] 的「概念B」
+简短说明：一句话解释为什么有关联
+```
+
+示例：
+```
+[机器学习入门] 的「过拟合」← 同一概念 → [深度学习实战] 的「泛化能力不足」
+简短说明：两个文档用不同术语描述了同一个现象
+```
+
+注意：
+- 只找有实质意义的关联，不要凑数
+- 找不到真实关联就说找不到，不要编造
+- 至少找 3 条，最多 8 条
+- 每条关联必须具体到文档和概念"""
+
+    messages = [{"role": "user", "content": prompt}]
+    result = call_llm(messages, max_tokens=2048)
+
+    if not result:
+        return jsonify({"error": "分析失败，请重试"}), 500
+
+    # Parse connections
+    connections = []
+    for line in result.split("\n"):
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith("注意"):
+            continue
+        if "←" in line and "→" in line:
+            # Parse the connection line
+            conn = {"raw": line}
+            # Try to extract doc names and concepts
+            match = re.match(r'\[([^\]]+)\]\s*的\s*「([^」]+)」\s*←\s*(.+?)\s*→\s*\[([^\]]+)\]\s*的\s*「([^」]+)」', line)
+            if match:
+                conn = {
+                    "source_doc": match.group(1),
+                    "source_concept": match.group(2),
+                    "relation": match.group(3).strip(),
+                    "target_doc": match.group(4),
+                    "target_concept": match.group(5),
+                    "raw": line
+                }
+            connections.append(conn)
+            continue
+        if line.startswith("简短说明：") and connections:
+            connections[-1]["explanation"] = line.replace("简短说明：", "").strip()
+
+    # If parsing failed, use raw
+    if not connections:
+        connections = [{"raw": result, "fallback": True}]
+
+    return jsonify({
+        "connections": connections,
+        "doc_count": len(docs),
+        "raw": result
+    })
+
+
 @app.route("/api/health")
 def health():
     stats = get_stats()
