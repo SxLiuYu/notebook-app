@@ -659,21 +659,21 @@ def feynman():
     doc_id = data.get("doc_id", "")
     folder_id = data.get("folder_id", "")
 
-    docs = load_docs()
-    if doc_id:
-        docs = [d for d in docs if d["id"] == doc_id]
-    elif folder_id:
-        if folder_id == "uncategorized":
-            docs = [d for d in docs if not d.get("folder_id")]
-        else:
-            docs = [d for d in docs if d.get("folder_id") == folder_id]
-
-    if not docs:
-        return jsonify({"error": "请先选择文档或分类"}), 400
-
-    doc_ids = [d["id"] for d in docs]
-
     if action == "pick":
+        docs = load_docs()
+        if doc_id:
+            docs = [d for d in docs if d["id"] == doc_id]
+        elif folder_id:
+            if folder_id == "uncategorized":
+                docs = [d for d in docs if not d.get("folder_id")]
+            else:
+                docs = [d for d in docs if d.get("folder_id") == folder_id]
+
+        if not docs:
+            return jsonify({"error": "请先选择文档或分类"}), 400
+
+        doc_ids = [d["id"] for d in docs]
+
         blind = data.get("blind", False)  # 盲复述模式：不显示原文
 
         # Load user's progress for this doc
