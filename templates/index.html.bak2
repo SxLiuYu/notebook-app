@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Notebook · AI 研究助手</title>
+<style>
+:root{
+  --bg:#fff;--sidebar-bg:#f9f9f9;--text:#1a1a1a;--text2:#6b6b6b;--text3:#9a9a9a;
+  --accent:#2563eb;--accent-light:#eff6ff;--border:#eaeaea;--hover:#f3f3f3;
+  --radius:8px;--radius-lg:16px;--font:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Microsoft YaHei",sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font);color:var(--text);background:var(--bg);display:flex;height:100vh;overflow:hidden}
+
+/* Sidebar */
+.sidebar{width:260px;background:var(--sidebar-bg);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+.sidebar-header{padding:20px 16px 8px;font-size:13px;font-weight:600;color:var(--text);letter-spacing:-.2px}
+.sidebar-nav{overflow-y:auto;flex:1;padding:0 8px}
+.nav-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;font-size:13px;cursor:pointer;color:var(--text2);margin:1px 0;transition:background .1s}
+.nav-item:hover{background:var(--hover);color:var(--text)}
+.nav-item.active{background:#eef2ff;color:var(--accent);font-weight:500}
+.nav-item .count{font-size:10px;color:var(--text3);margin-left:auto}
+.nav-item.active .count{color:var(--accent)}
+.upload-zone{margin:8px;padding:10px;border:1.5px dashed var(--border);border-radius:var(--radius);cursor:pointer;text-align:center;font-size:12px;color:var(--text3);transition:.15s;flex-shrink:0}
+.upload-zone:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-light)}
+.upload-zone input{display:none}
+
+/* Main */
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.tabs{display:flex;gap:0;padding:8px 16px 0;border-bottom:1px solid var(--border);flex-shrink:0}
+.tab{padding:8px 14px;font-size:13px;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;transition:.15s;font-weight:500}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* Chat */
+.chat-body{flex:1;overflow-y:auto;display:flex;flex-direction:column}
+.chat-messages{flex:1;overflow-y:auto;padding:24px 32px;max-width:720px;margin:0 auto;width:100%}
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;padding:40px}
+.empty-icon{font-size:40px;margin-bottom:12px;opacity:.6}
+.empty h2{font-size:17px;font-weight:600;margin-bottom:4px;color:var(--text)}
+.empty p{font-size:13px;color:var(--text3)}
+.msg{margin-bottom:20px}
+.msg.user{display:flex;justify-content:flex-end}
+.msg.user .bubble{background:#f0f4ff;color:var(--text);padding:10px 16px;border-radius:var(--radius-lg) 4px var(--radius-lg) var(--radius-lg);font-size:14px;line-height:1.5;max-width:85%}
+.msg.assistant .bubble{padding:4px 0;font-size:14px;line-height:1.7;max-width:100%}
+.msg.assistant .bubble p{margin-bottom:8px}
+.msg.assistant .bubble ul,.msg.assistant .bubble ol{padding-left:18px;margin:6px 0}
+.msg.assistant .bubble blockquote{border-left:2px solid var(--accent);padding-left:12px;color:var(--text2);margin:8px 0}
+.msg .sources{margin-top:6px;display:flex;gap:4px;flex-wrap:wrap}
+.msg .source{font-size:11px;color:var(--text3);background:var(--hover);padding:2px 8px;border-radius:10px}
+
+/* Input */
+.input-bar{padding:12px 32px;border-top:1px solid var(--border);background:var(--bg);flex-shrink:0}
+.input-row{display:flex;gap:8px;align-items:center;max-width:720px;margin:0 auto}
+.input-row textarea{flex:1;border:1.5px solid var(--border);border-radius:var(--radius-lg);padding:10px 16px;font-size:14px;font-family:var(--font);resize:none;outline:none;height:42px;line-height:1.4;transition:border-color .15s}
+.input-row textarea:focus{border-color:var(--accent)}
+.input-row button{background:var(--accent);color:#fff;border:none;padding:9px 18px;border-radius:var(--radius);font-size:13px;font-weight:600;cursor:pointer;transition:.15s;white-space:nowrap;flex-shrink:0}
+.input-row button:hover{opacity:.9}
+.input-row button:disabled{opacity:.4}
+
+/* Podcast */
+.podcast-body{display:none;flex:1;overflow-y:auto;padding:24px 32px;max-width:720px;margin:0 auto;width:100%}
+.podcast-form{display:flex;gap:8px;padding:12px 32px;border-top:1px solid var(--border);flex-shrink:0;background:var(--bg)}
+.podcast-form select,.podcast-form input{flex:1;border:1.5px solid var(--border);border-radius:var(--radius-lg);padding:8px 14px;font-size:13px;font-family:var(--font);outline:none}
+.podcast-form select:focus,.podcast-form input:focus{border-color:var(--accent)}
+.podcast-form button{background:var(--accent);color:#fff;border:none;padding:8px 18px;border-radius:var(--radius);font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0}
+.script{font-size:14px;line-height:1.9}
+.script .speaker{display:flex;gap:8px;margin:12px 0}
+.script .speaker .name{font-weight:600;font-size:12px;color:var(--text3);min-width:50px;padding-top:2px}
+.script .speaker .text{flex:1;background:var(--sidebar-bg);padding:10px 14px;border-radius:var(--radius);line-height:1.6}
+
+/* Mobile */
+@media(max-width:768px){
+  .sidebar{display:none;position:fixed;z-index:10;left:0;top:0;bottom:0;width:280px;box-shadow:2px 0 16px rgba(0,0,0,.1)}
+  .sidebar.open{display:flex}
+  .chat-messages,.podcast-body{padding:16px}
+  .input-bar,.podcast-form{padding:10px 16px}
+  .main-header{display:flex}
+}
+
+/* Hamburger */
+.hamburger{display:none;padding:8px 12px;cursor:pointer;font-size:20px;color:var(--text2);border:none;background:none}
+@media(max-width:768px){.hamburger{display:block}}
+
+/* Knowledge modal */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.2);z-index:50;align-items:center;justify-content:center}
+.modal-bg.open{display:flex}
+.modal{background:#fff;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.12);width:90%;max-width:640px;max-height:80vh;display:flex;flex-direction:column}
+.modal-h{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.modal-h h2{font-size:15px;flex:1}
+.modal-close{cursor:pointer;font-size:18px;color:var(--text3);border:none;background:none;padding:4px}
+.modal-b{flex:1;overflow-y:auto;padding:20px;font-size:13px;line-height:1.7}
+.modal-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px}
+.modal-tab{padding:6px 14px;font-size:12px;cursor:pointer;color:var(--text3);border-bottom:2px solid transparent}
+.modal-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:500}
+.modal-panel{display:none}
+.modal-panel.active{display:block}
+/* Mindmap tree */
+.mm-node{margin-left:20px;position:relative;padding:2px 0}
+.mm-node:before{content:'';position:absolute;left:-14px;top:0;bottom:0;width:1px;background:var(--border)}
+.mm-node:last-child:before{height:10px}
+.mm-label{padding:2px 8px;background:var(--accent-light);border-radius:4px;display:inline-block;font-size:12px;position:relative;margin:2px 0}
+.mm-label:before{content:'';position:absolute;left:-14px;top:50%;width:14px;height:1px;background:var(--border)}
+.mm-root>.mm-label{background:var(--accent);color:#fff;font-size:13px;padding:4px 12px;font-weight:600}
+.mm-root:before{display:none}
+.mm-root>.mm-label:before{display:none}
+
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1a1a;color:#fff;padding:8px 20px;border-radius:20px;font-size:12px;z-index:100;opacity:0;transition:opacity .3s;pointer-events:none}
+.toast.show{opacity:1}
+</style>
+<script src="/static/marked.min.js"></script>
+</head>
+<body>
+
+<!-- Sidebar overlay for mobile -->
+<div style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.15);z-index:9" id="overlay" onclick="closeSidebar()"></div>
+
+<aside class="sidebar" id="sidebar">
+  <div style="padding:16px;font-size:15px;font-weight:700;letter-spacing:-.3px;display:flex;align-items:center;gap:6px">
+    <span style="width:8px;height:8px;background:var(--accent);border-radius:50%;display:inline-block"></span>
+    Notebook
+  </div>
+  <div class="upload-zone" onclick="document.getElementById('fu').click()">
+    📤 上传文档
+    <input type="file" id="fu" accept=".txt,.md,.pdf,.docx,.csv,.json" onchange="upload(this)" multiple>
+  </div>
+  <div class="sidebar-header">分类</div>
+  <nav class="sidebar-nav" id="folders-nav"></nav>
+  <div class="sidebar-header">文档</div>
+  <nav class="sidebar-nav" id="docs-nav" style="font-size:12px"></nav>
+  <div style="padding:8px;flex-shrink:0">
+    <div style="display:flex;gap:4px">
+      <input placeholder="新建分类" id="new-folder-name" style="flex:1;border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;outline:none" onkeydown="event.key==='Enter'&&createFolder()">
+      <button onclick="createFolder()" style="background:var(--accent);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer">+</button>
+    </div>
+  </div>
+</aside>
+
+<main class="main">
+  <div style="display:flex;align-items:center;padding:6px 12px;border-bottom:1px solid var(--border)">
+    <button class="hamburger" onclick="toggleSidebar()">☰</button>
+    <div class="tabs" style="border:none;padding:0">
+      <div class="tab active" onclick="switchView('chat',this)">💬 问答</div>
+      <div class="tab" onclick="switchView('podcast',this)">🎙️ 播客</div>
+    </div>
+    <span style="margin-left:auto;font-size:12px;color:var(--text3)" id="folder-badge">全部文档</span>
+    <button onclick="openKnowledge()" id="knowledge-btn" style="display:none;font-size:12px;background:none;border:1px solid var(--border);padding:3px 10px;border-radius:4px;cursor:pointer;color:var(--accent);margin-left:8px">📊</button>
+  </div>
+
+  <!-- Chat -->
+  <div class="chat-body" id="chat-view">
+    <div class="chat-messages" id="chat-msgs">
+      <div class="empty" id="chat-empty">
+        <div class="empty-icon">📖</div>
+        <h2>上传文档，开始探索</h2>
+        <p>支持 PDF、DOCX、TXT、Markdown 等格式</p>
+      </div>
+    </div>
+    <div class="input-bar">
+      <div class="input-row">
+        <textarea id="query-input" placeholder="向文档提问…" rows="1" onkeydown="event.key==='Enter'&&!event.shiftKey&&(event.preventDefault(),ask())"></textarea>
+        <button onclick="ask()">发送</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Podcast -->
+  <div class="podcast-body" id="podcast-view" style="display:none">
+    <div class="empty" id="podcast-empty">
+      <div class="empty-icon">🎙️</div><h2>AI 双人播客</h2><p>基于文档生成对话式播客脚本</p>
+    </div>
+  </div>
+  <div class="podcast-form" id="podcast-form" style="display:none">
+    <select id="podcast-doc"><option value="">全部文档</option></select>
+    <input id="podcast-topic" placeholder="主题（可选）">
+    <button onclick="genPodcast()">生成</button>
+  </div>
+</main>
+
+<!-- Knowledge Modal -->
+<div class="modal-bg" id="modal-bg" onclick="event.target===this&&closeModal()">
+  <div class="modal">
+    <div class="modal-h"><h2 id="km-title">📊 知识梳理</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-b" id="km-body">
+      <div class="modal-tabs">
+        <div class="modal-tab active" onclick="switchKm('summary',this)">知识总结</div>
+        <div class="modal-tab" onclick="switchKm('mindmap',this)">思维导图</div>
+        <div class="modal-tab" onclick="switchKm('learning',this)">学习路径</div>
+      </div>
+      <div class="modal-panel active" id="km-summary"></div>
+      <div class="modal-panel" id="km-mindmap"></div>
+      <div class="modal-panel" id="km-learning"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+var API='',activeFolder='',activeDoc='',currentView='chat',chatHistory=[],folders=[],docs=[],tt;
+
+function $(id){return document.getElementById(id)}
+function toast(m,d){clearTimeout(tt);var e=$('toast');e.textContent=m;e.classList.add('show');tt=setTimeout(function(){e.classList.remove('show')},d||2500)}
+
+// Sidebar mobile
+function toggleSidebar(){var s=$('sidebar'),o=$('overlay');s.classList.toggle('open');o.style.display=s.classList.contains('open')?'block':'none'}
+function closeSidebar(){$('sidebar').classList.remove('open');$('overlay').style.display='none'}
+
+// Views
+function switchView(v,el){
+  currentView=v;
+  document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('active',t===el)});
+  $('chat-view').style.display=v==='chat'?'flex':'none';
+  $('input-bar').style.display=v==='chat'?'flex':'none';
+  $('podcast-view').style.display=v==='podcast'?'flex':'none';
+  $('podcast-form').style.display=v==='podcast'?'flex':'none';
+  if(v==='podcast')updatePodcastSelect();
+}
+
+// API helpers
+async function api(url,opt){
+  try{
+    var r=await fetch(API+url,opt||{});
+    if(!r.ok){var msg=r.statusText;try{var e=await r.json();msg=e.error||msg}catch(_){};throw new Error(msg)}
+    return r.json()
+  }catch(e){console.error('API '+url+' failed:',e);throw e}
+}
+
+// Folders & Docs
+async function loadAll(){
+  try{
+    var f=await api('/api/folders');folders=f.folders||[];
+    var d=await api('/api/docs'+(activeFolder?'?folder_id='+activeFolder:''));docs=d.documents||[];
+    renderSidebar();
+  }catch(e){
+    document.getElementById('folders-nav').innerHTML='<div style="padding:10px;color:#e53e3e;font-size:12px">加载失败，<a href="javascript:loadAll()" style="color:#2563eb">点击重试</a></div>';
+    document.getElementById('docs-nav').innerHTML='<div style="padding:10px;color:#e53e3e;font-size:12px">加载失败</div>';
+  }
+}
+function renderSidebar(){
+  var fn=$('folders-nav'),h='';
+  h+=navItem('','全部文档','📂',activeFolder===''?true:false);
+  h+=navItem('uncategorized','未分类','📄',activeFolder==='uncategorized'?true:false);
+  folders.forEach(function(f){h+=navItem(f.id,f.name,'📁',activeFolder===f.id)});
+  fn.innerHTML=h;
+  var dn=$('docs-nav'),d='';
+  docs.forEach(function(dc){d+=docItem(dc.id,dc.title,activeDoc===dc.id)});
+  dn.innerHTML=d||'<div style="padding:6px 10px;font-size:11px;color:var(--text3)">暂无文档</div>';
+  $('folder-badge').textContent=activeFolder?getFname(activeFolder):'全部文档';
+  $('knowledge-btn').style.display=(activeFolder&&activeFolder!=='uncategorized')?'inline-block':'none';
+}
+function navItem(id,name,icon,active){
+  return '<div class="nav-item'+(active?' active':'')+'" onclick="selectFolder(''+id+'')">'+icon+' '+name+'</div>';
+}
+function docItem(id,title,active){
+  return '<div class="nav-item'+(active?' active':'')+'" onclick="selectDoc(''+id+'')" style="padding-left:20px;font-size:12px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+title+'</span><span class="count" onclick="event.stopPropagation();delDoc(''+id+'')" style="cursor:pointer;opacity:0;transition:.15s" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0'">✕</span></div>';
+}
+function getFname(id){
+  if(!id||id==='uncategorized')return id==='uncategorized'?'未分类':'全部文档';
+  var f=folders.find(function(x){return x.id===id});return f?f.name:id;
+}
+async function selectFolder(id){
+  activeFolder=id===activeFolder?'':id;activeDoc='';chatHistory=[];
+  await loadAll();renderChat();$('knowledge-btn').style.display=(activeFolder&&activeFolder!=='uncategorized')?'inline-block':'none';
+}
+async function selectDoc(id){activeDoc=id===activeDoc?'':id;renderSidebar()}
+async function createFolder(){
+  var n=$('new-folder-name').value.trim();if(!n)return;
+  await api('/api/folders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n})});
+  $('new-folder-name').value='';toast('已创建：'+n);await loadAll();
+}
+async function delDoc(id){if(!confirm('删除？'))return;await api('/api/docs/'+id,{method:'DELETE'});if(activeDoc===id)activeDoc='';await loadAll()}
+
+// Upload
+async function upload(inp){
+  var fs=inp.files;if(!fs.length)return;
+  for(var i=0;i<fs.length;i++){
+    var f=fs[i],fd=new FormData();fd.append('file',f);
+    if(activeFolder&&activeFolder!=='uncategorized')fd.append('folder_id',activeFolder);
+    try{var r=await api('/api/upload',{method:'POST',body:fd});toast('✅ '+f.name+' · '+r.doc.chunks+' 段落')}catch(e){toast('❌ '+e.message)}
+  }
+  inp.value='';await loadAll();
+}
+
+// Chat
+function renderChat(){
+  var c=$('chat-msgs');if(!chatHistory.length){c.innerHTML='<div class="empty"><div class="empty-icon">📖</div><h2>上传文档，开始探索</h2><p>支持 PDF、DOCX、TXT、Markdown 等格式</p></div>';return}
+  var h='';chatHistory.forEach(function(m){
+    if(m.role==='user')h+='<div class="msg user"><div class="bubble">'+esc(m.content)+'</div></div>';
+    else h+='<div class="msg assistant"><div class="bubble">'+(typeof marked!=='undefined'?marked.parse(m.content):m.content)+'</div></div>';
+  });
+  c.innerHTML=h;c.scrollTop=c.scrollHeight;
+}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+async function ask(){
+  var q=$('query-input').value.trim();if(!q)return;
+  if(!docs.length){toast('请先上传文档');return}
+  chatHistory.push({role:'user',content:q});$('query-input').value='';
+  chatHistory.push({role:'assistant',content:'<em style="color:var(--text3)">思考中…</em>'});
+  renderChat();
+  var body={query:q,doc_id:activeDoc,folder_id:activeFolder,history:chatHistory.slice(0,-1)};
+  var r=await api('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  var a=r.answer||'无回答';if(r.sources&&r.sources.length) a+='<div class="sources">'+r.sources.map(function(s){return '<span class="source">📎 '+s.title+'</span>'}).join('')+'</div>';
+  chatHistory[chatHistory.length-1]={role:'assistant',content:a};renderChat();
+}
+
+// Podcast
+function updatePodcastSelect(){
+  var s=$('podcast-doc');s.innerHTML='<option value="">全部文档</option>';
+  docs.forEach(function(d){s.innerHTML+='<option value="'+d.id+'">'+d.title+'</option>'});
+}
+async function genPodcast(){
+  var t=$('podcast-topic').value.trim(),d=$('podcast-doc').value;
+  $('podcast-view').innerHTML='<div class="empty"><div class="empty-icon">⏳</div><h2>生成中…</h2></div>';
+  var r=await api('/api/podcast',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({doc_id:d,folder_id:activeFolder,topic:t})});
+  var h='<h2 style="font-size:16px;margin-bottom:16px">🎙️ '+r.title+'</h2>';
+  if(r.audio_url)h+='<audio controls src="'+r.audio_url+'" style="width:100%;margin-bottom:12px;border-radius:8px"></audio>';
+  h+='<div class="script">';
+  (r.script||'').split('\n').forEach(function(l){
+    l=l.trim();if(!l)return;
+    if(l.startsWith('[A]'))h+='<div class="speaker"><div class="name" style="color:var(--accent)">🎤 主持人</div><div class="text">'+l.substring(3)+'</div></div>';
+    else if(l.startsWith('[B]'))h+='<div class="speaker"><div class="name" style="color:#ea4335">🎓 专家</div><div class="text">'+l.substring(3)+'</div></div>';
+    else h+='<p>'+l+'</p>';
+  });
+  h+='</div>';$('podcast-view').innerHTML=h;toast('✅ 播客已生成');
+}
+
+// Knowledge
+async function openKnowledge(){
+  if(!activeFolder||activeFolder==='uncategorized'){toast('请选择分类');return}
+  $('modal-bg').classList.add('open');$('km-summary').innerHTML='<p style="color:var(--text3)">加载中…</p>';
+  $('km-mindmap').innerHTML='';$('km-learning').innerHTML='';
+  switchKm('summary',document.querySelector('.modal-tab'));
+  $('km-title').textContent='📊 '+getFname(activeFolder)+' · 知识梳理';
+  var r=await api('/api/folders/'+activeFolder+'/knowledge',{method:'POST'});
+  $('km-summary').innerHTML=typeof marked!=='undefined'?marked.parse(r.summary_md||''):r.summary_md||'';
+  // Mindmap
+  var mm=r.mindmap;
+  if(mm){$('km-mindmap').innerHTML=renderMindmap(mm)}else{$('km-mindmap').innerHTML='<p style="color:var(--text3)">暂无数据</p>'}
+  $('km-learning').innerHTML=typeof marked!=='undefined'?marked.parse(r.learning_path||''):r.learning_path||'';
+}
+function closeModal(){$('modal-bg').classList.remove('open')}
+function switchKm(tab,el){
+  document.querySelectorAll('.modal-tab').forEach(function(t){t.classList.toggle('active',t===el)});
+  document.querySelectorAll('.modal-panel').forEach(function(p){p.classList.toggle('active',p.id==='km-'+tab)});
+}
+function renderMindmap(data,depth){
+  depth=depth||0;var h='<div class="mm-node'+(depth===0?' mm-root':'')+'"><div class="mm-label">'+data.topic+'</div>';
+  if(data.children&&data.children.length){data.children.forEach(function(c){h+=renderMindmap(c,depth+1)})}
+  h+='</div>';return h;
+}
+
+loadAll();
+</script>
+</body>
+</html>

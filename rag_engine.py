@@ -2,6 +2,7 @@
 """RAG Engine: ChromaDB + FinnA cloud embeddings, hybrid search with BM25 + LLM re-rank."""
 import os, math, json, gc
 import requests
+_embed_session = requests.Session()
 
 # Singletons
 _chroma_client = None
@@ -28,7 +29,7 @@ def _get_embeddings(texts):
     
     for attempt in range(3):
         try:
-            resp = requests.post(
+            resp = _embed_session.post(
                 f"{EMBED_BASE}/embeddings",
                 headers={
                     "Authorization": f"Bearer {EMBED_KEY}",
@@ -43,7 +44,7 @@ def _get_embeddings(texts):
         except Exception as e:
             print(f"Embed attempt {attempt+1} failed: {e}")
             import time
-            time.sleep(1)
+            time.sleep(2 ** attempt)
     
     return []
 

@@ -1,0 +1,16 @@
+{
+  "test123": {
+    "mastered": 0,
+    "feynman_count": 1,
+    "feynman_correct": 0,
+    "exam_score": null,
+    "weak_concepts": [
+      "过拟合",
+      "正则化"
+    ],
+    "mastered_concepts": [],
+    "feynman_history": [],
+    "exam_errors": [],
+    "last_accessed": "2026-05-28T13:18:20.317905"
+  }
+}

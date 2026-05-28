@@ -290,7 +290,7 @@ def _render_audio(segments, output_dir, title):
                 await communicate.save(output_file)
             
             try:
-                asyncio.run(_tts())
+                subprocess.run(["edge-tts", "--voice", voice, "--text", text, "--write-media", output_file], capture_output=True, timeout=30)
                 wav_files.append(output_file)
             except Exception as e:
                 print(f"TTS segment {i} failed (edge-tts): {e}")

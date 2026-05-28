@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>Notebook Test</title></head>
+<body style="font-family:sans-serif;padding:20px">
+<h1>Data Check</h1>
+<div id="folders">Loading...</div>
+<div id="docs">Loading...</div>
+<script>
+async function test(){
+  try{
+    var f=await fetch('/api/folders');var fj=await f.json();
+    document.getElementById('folders').innerHTML='<b>Folders:</b> '+JSON.stringify(fj.folders.map(function(x){return x.name}));
+    var d=await fetch('/api/docs');var dj=await d.json();
+    document.getElementById('docs').innerHTML='<b>Docs:</b> '+dj.documents.length+' docs: '+JSON.stringify(dj.documents.map(function(x){return x.title}));
+  }catch(e){
+    document.getElementById('folders').innerHTML='ERROR: '+e.message;
+  }
+}
+test();
+</script>
+</body>
+</html>
