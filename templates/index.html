@@ -264,6 +264,44 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .chat-layout .chat-knowledge::-webkit-scrollbar-thumb{background:#dadce0;border-radius:4px}
 
 }
+/* FEYNMAN */
+.feynman-passage{
+  background:#fef9e7;border:1px solid #f9e4b7;border-radius:12px;padding:20px 24px;
+  margin-bottom:20px;font-size:14.5px;line-height:1.8;position:relative
+}
+.feynman-passage .fp-label{
+  position:absolute;top:-10px;left:16px;background:#f9ab00;color:#fff;
+  padding:3px 12px;border-radius:10px;font-size:12px;font-weight:600
+}
+.feynman-passage .fp-source{font-size:11px;color:#9e8c5b;margin-top:10px}
+.feynman-explain textarea{
+  width:100%;min-height:120px;padding:16px;border-radius:12px;border:1.5px solid #dadce0;
+  font-size:14.5px;font-family:var(--font);line-height:1.6;resize:vertical;
+  background:#fafafa;outline:none;box-sizing:border-box
+}
+.feynman-explain textarea:focus{border-color:var(--accent);background:#fff;box-shadow:0 0 0 3px rgba(26,115,232,.12)}
+.feynman-explain button{
+  margin-top:12px;padding:12px 32px;background:var(--accent);color:#fff;
+  border:none;border-radius:24px;font-size:15px;font-weight:600;cursor:pointer
+}
+.feynman-explain button:hover{background:var(--accent-dark)}
+.feedback-card{
+  margin-top:20px;padding:24px;border-radius:12px;line-height:1.8
+}
+.feedback-card.verdict-correct{background:#e6f4ea;border:1px solid #a8dab5}
+.feedback-card.verdict-partial{background:#fef7e0;border:1px solid #f9d46c}
+.feedback-card.verdict-wrong{background:#fce8e6;border:1px solid #f5b7b1}
+.feedback-card h3{font-size:17px;margin-bottom:12px}
+.feedback-card .fb-section{margin-bottom:14px}
+.feedback-card .fb-section h4{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;color:var(--text2)}
+.feedback-card .fb-section p{font-size:14px;margin:2px 0;padding-left:12px;border-left:2px solid #dadce0}
+.feedback-retry{margin-top:16px}
+.feedback-retry button{
+  padding:10px 24px;background:none;border:1.5px solid var(--accent);color:var(--accent);
+  border-radius:24px;font-size:13.5px;font-weight:600;cursor:pointer
+}
+.feedback-retry button:hover{background:var(--accent-light)}
+
 
 .ck-raw{font-size:12.5px;line-height:1.6;color:var(--text)}.ck-raw p{margin-bottom:6px}.ck-raw strong{color:var(--accent-dark)}.ck-raw ul,.ck-raw ol{padding-left:16px;margin-bottom:6px}.ck-raw li{margin-bottom:2px}
 
@@ -400,6 +438,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         </select>
         <button class="primary" onclick="generateExam()" style="padding:10px 24px;background:var(--accent);color:#fff;border:none;border-radius:24px;font-size:14px;font-weight:600;cursor:pointer">📝 生成试题</button>
         <button class="primary" onclick="generateMindmap()" style="padding:10px 24px;background:#34a853;color:#fff;border:none;border-radius:24px;font-size:14px;font-weight:600;cursor:pointer">🧠 思维导图</button>
+        <button class="primary" onclick="startFeynman()" style="padding:10px 24px;background:#ea4335;color:#fff;border:none;border-radius:24px;font-size:14px;font-weight:600;cursor:pointer">🧠 费曼复述</button>
       </div>
       <div id="exam-content" style="background:var(--card);border-radius:12px;border:1px solid var(--border-light);padding:28px 32px;font-size:14.5px;line-height:1.8;box-shadow:0 1px 3px rgba(0,0,0,.08)">
         <div class="empty-state">
@@ -701,6 +740,117 @@ function renderMindmap(mermaidCode,title){
     mermaid.run({querySelector:'.mermaid'});
   }catch(e){console.log('Mermaid render error:',e)}
 }
+
+/* ─── FEYNMAN ─── */
+var currentPassage='';
+
+async function startFeynman(){
+  if(!allDocs.length){toast('请先上传文档');return}
+  var c=document.getElementById('exam-content');
+  c.innerHTML='<div class="empty-state"><div class="es-icon">🧠</div><h2>挑选段落中...</h2></div>';
+  // Switch to exam tab
+  switchView('exam');
+  try{
+    var b={action:'pick',doc_id:activeDocId,folder_id:activeFolderId};
+    var r=await fetch(API+'/api/feynman',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+    var d=await r.json();
+    if(d.error){c.innerHTML='<div class="empty-state"><h2>❌ '+d.error+'</h2></div>';return}
+    currentPassage=d.passage;
+    renderFeynmanPrompt(d);
+  }catch(e){c.innerHTML='<div class="empty-state"><h2>❌ '+e.message+'</h2></div>'}
+}
+
+function renderFeynmanPrompt(data){
+  var c=document.getElementById('exam-content');
+  var h='<h2 style="margin-bottom:20px;color:#ea4335">🧠 费曼复述</h2>';
+  h+='<p style="color:var(--text2);font-size:13.5px;margin-bottom:20px">用自己的话解释下面这段话。不要复述原文，用你能想到的最简单的方式说出来。</p>';
+  h+='<div class="feynman-passage"><div class="fp-label">📖 原文</div>'+data.passage.replace(/\n/g,'<br>')+'<div class="fp-source">来源：'+data.source+'</div></div>';
+  h+='<div class="feynman-explain"><textarea id="feynman-input" placeholder="用你自己的话解释这段话..."></textarea><br><button onclick="submitFeynman()">提交解释</button></div>';
+  h+='<div id="feynman-feedback"></div>';
+  c.innerHTML=h;
+  document.getElementById('feynman-input').focus();
+}
+
+async function submitFeynman(){
+  var input=document.getElementById('feynman-input');
+  var exp=input.value.trim();
+  if(!exp||exp.length<10){toast('请至少写一句话');return}
+
+  var fb=document.getElementById('feynman-feedback');
+  fb.innerHTML='<div class="empty-state" style="padding:20px"><div class="es-icon">⏳</div><p>评估中...</p></div>';
+
+  try{
+    var b={action:'evaluate',passage:currentPassage,explanation:exp};
+    var r=await fetch(API+'/api/feynman',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+    var d=await r.json();
+    if(d.error){fb.innerHTML='<div class="empty-state"><h2>❌ '+d.error+'</h2></div>';return}
+    renderFeedback(d);
+  }catch(e){fb.innerHTML='<div class="empty-state"><h2>❌ '+e.message+'</h2></div>'}
+}
+
+function renderFeedback(data){
+  var fb=document.getElementById('feynman-feedback');
+  var vClass='';
+  if(data.verdict.includes('正确'))vClass='verdict-correct';
+  else if(data.verdict.includes('有误'))vClass='verdict-wrong';
+  else vClass='verdict-partial';
+
+  // Parse feedback into sections
+  var sections={good:[],missed:[],wrong:[],tip:''};
+  var currentKey='';
+  var lines=data.feedback.split('\n');
+  for(var i=0;i<lines.length;i++){
+    var l=lines[i].trim();
+    if(!l)continue;
+    if(l.includes('做得好的地方')||l.includes('好的地方')){currentKey='good';continue}
+    if(l.includes('遗漏了什么')||l.includes('遗漏')){currentKey='missed';continue}
+    if(l.includes('偏差在哪里')||l.includes('偏差')){currentKey='wrong';continue}
+    if(l.includes('一句话建议')||l.includes('建议')){currentKey='tip';continue}
+    if(l.startsWith('###')){currentKey='';continue}
+    if(currentKey==='tip'){sections.tip+=l+' ';continue}
+    if(l.startsWith('- ')||l.startsWith('* ')){
+      if(currentKey&&sections[currentKey])sections[currentKey].push(l.replace(/^[-*]\s*/,''));
+    }
+  }
+
+  if(sections.good.length||sections.missed.length||sections.wrong.length||sections.tip){
+    var h='<div class="feedback-card '+vClass+'"><h3>'+data.verdict+'</h3>';
+    if(sections.good.length){
+      h+='<div class="fb-section"><h4>✅ 做得好的地方</h4>';
+      sections.good.forEach(function(s){h+='<p>'+s+'</p>'});
+      h+='</div>';
+    }
+    if(sections.missed.length){
+      h+='<div class="fb-section"><h4>🔍 遗漏了什么</h4>';
+      sections.missed.forEach(function(s){h+='<p>'+s+'</p>'});
+      h+='</div>';
+    }
+    if(sections.wrong.length){
+      h+='<div class="fb-section"><h4>⚠️ 偏差在哪里</h4>';
+      sections.wrong.forEach(function(s){h+='<p>'+s+'</p>'});
+      h+='</div>';
+    }
+    if(sections.tip.trim()){
+      h+='<div class="fb-section"><h4>💡 一句话建议</h4><p>'+sections.tip.trim()+'</p></div>';
+    }
+    h+='<div class="feedback-retry"><button onclick="startFeynman()">🔄 再来一段</button></div>';
+    h+='</div>';
+    fb.innerHTML=h;
+  }else{
+    // Fallback: render raw feedback
+    fb.innerHTML='<div class="feedback-card '+vClass+'"><h3>'+data.verdict+'</h3><div style="white-space:pre-wrap;font-size:14px;line-height:1.8">'+data.feedback+'</div><div class="feedback-retry"><button onclick="startFeynman()">🔄 再来一段</button></div></div>';
+  }
+  fb.scrollIntoView({behavior:'smooth'});
+}
+
+// Submit on Ctrl+Enter in feynman textarea
+document.addEventListener('keydown',function(e){
+  if(e.ctrlKey&&e.key==='Enter'){
+    var ta=document.getElementById('feynman-input');
+    if(ta&&ta===document.activeElement){e.preventDefault();submitFeynman()}
+  }
+});
+
 
 
 /* ─── Knowledge Panel ─── */

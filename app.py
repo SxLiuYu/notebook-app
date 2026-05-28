@@ -650,6 +650,118 @@ mindmap
     })
 
 
+
+@app.route("/api/feynman", methods=["POST"])
+def feynman():
+    """费曼复述：挑关键段落 → 用户解释 → AI判断理解是否到位"""
+    data = request.get_json()
+    action = data.get("action", "pick")  # pick | evaluate
+    doc_id = data.get("doc_id", "")
+    folder_id = data.get("folder_id", "")
+
+    docs = load_docs()
+    if doc_id:
+        docs = [d for d in docs if d["id"] == doc_id]
+    elif folder_id:
+        if folder_id == "uncategorized":
+            docs = [d for d in docs if not d.get("folder_id")]
+        else:
+            docs = [d for d in docs if d.get("folder_id") == folder_id]
+
+    if not docs:
+        return jsonify({"error": "请先选择文档或分类"}), 400
+
+    doc_ids = [d["id"] for d in docs]
+
+    if action == "pick":
+        # Pick a key passage — prioritize reasoning/detailed content over definitions
+        candidates = search("原理 过程 方法 关系 区别 原因 论证 分析 所以 因此 例如 具体来说",
+                            top_k=8, doc_ids=doc_ids)
+        if not candidates:
+            candidates = search("内容 说明 介绍", top_k=5, doc_ids=doc_ids)
+
+        if not candidates:
+            return jsonify({"error": "文档中没有足够长的段落用于复述"}), 404
+
+        # Pick the longest meaningful passage
+        best = max(candidates, key=lambda x: len(x["chunk_text"]))
+        passage = best["chunk_text"].strip()
+        source_title = best["metadata"].get("title", best["metadata"].get("source", ""))
+
+        return jsonify({
+            "passage": passage,
+            "source": source_title,
+            "length": len(passage)
+        })
+
+    elif action == "evaluate":
+        passage = data.get("passage", "").strip()
+        explanation = data.get("explanation", "").strip()
+
+        if not passage or not explanation:
+            return jsonify({"error": "缺少原文或你的解释"}), 400
+
+        if len(explanation) < 10:
+            return jsonify({"error": "解释太短，请至少写一句话"}), 400
+
+        prompt = f"""你是费曼学习法的教练。你的任务是评估学习者对一段原文的理解程度。
+
+## 原文
+{passage}
+
+## 学习者的解释
+{explanation}
+
+## 评估要求
+
+请从以下几个维度评估，用中文回复：
+
+### 理解判断
+判定：✅ 理解正确 / ⚠️ 部分正确 / ❌ 理解有误
+
+### 做得好的地方
+- 如果理解正确，说明学习者抓住了什么核心
+- 如果部分正确，指出哪部分是对的
+
+### 遗漏了什么
+- 原文中哪些重要信息没有被提到？
+- 是否有隐含的前提条件被忽略了？
+
+### 偏差在哪里
+- 学习者的解释和原文有哪些不一致？
+- 是否有过度推断或主观臆断？
+
+### 一句话建议
+- 如果要真正理解这段内容，应该重点关注什么？
+
+注意：
+- 语气要像一位耐心的老师，鼓励为主，精准指出问题
+- 不要长篇大论，每个维度 2-3 句即可
+- 用中文"""
+
+        messages = [{"role": "user", "content": prompt}]
+        result = call_llm(messages, max_tokens=1536)
+
+        if not result:
+            return jsonify({"error": "评估失败，请重试"}), 500
+
+        # Parse verdict
+        verdict = "⚠️ 部分正确"
+        if "理解正确" in result:
+            verdict = "✅ 理解正确"
+        elif "理解有误" in result:
+            verdict = "❌ 理解有误"
+
+        return jsonify({
+            "verdict": verdict,
+            "feedback": result,
+            "passage": passage,
+            "explanation": explanation
+        })
+
+    return jsonify({"error": "无效的 action"}), 400
+
+
 @app.route("/api/health")
 def health():
     stats = get_stats()
