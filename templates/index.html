@@ -336,6 +336,40 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   font-size:12px;color:var(--text3)
 }
 .link-legend span{padding:2px 8px;border-radius:8px;background:#f5f5f5}
+}
+/* PROGRESS */
+.doc-item .doc-progress{
+  height:3px;background:#e8eaed;border-radius:2px;margin-top:6px;overflow:hidden
+}
+.doc-item .doc-progress .bar{
+  height:100%;background:var(--accent);border-radius:2px;transition:width .4s
+}
+.doc-item .doc-progress .bar.weak{background:#ea4335}
+.doc-item .doc-weak{
+  font-size:10px;color:#ea4335;margin-top:3px;display:flex;flex-wrap:wrap;gap:3px
+}
+.doc-item .doc-weak span{
+  background:#fce8e6;padding:1px 6px;border-radius:6px
+}
+/* BLIND FEYNMAN */
+.feynman-blind-toggle{
+  display:flex;align-items:center;gap:8px;margin-bottom:16px;
+  font-size:13px;color:var(--text2)
+}
+.feynman-blind-toggle input[type=checkbox]{width:16px;height:16px}
+.feynman-passage.blurred{filter:blur(6px);user-select:none;cursor:pointer}
+.feynman-passage.blurred:hover{filter:blur(4px)}
+.feynman-show-btn{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  background:var(--accent);color:#fff;padding:8px 20px;
+  border-radius:24px;font-size:14px;font-weight:600;cursor:pointer;
+  border:none;z-index:1;pointer-events:auto
+}
+.feynman-targeted{
+  background:#fce8e6;border:1px solid #f5b7b1;padding:6px 14px;
+  border-radius:8px;font-size:12px;color:#c5221f;margin-bottom:12px;
+  display:inline-block
+}
 
 
 .ck-raw{font-size:12.5px;line-height:1.6;color:var(--text)}.ck-raw p{margin-bottom:6px}.ck-raw strong{color:var(--accent-dark)}.ck-raw ul,.ck-raw ol{padding-left:16px;margin-bottom:6px}.ck-raw li{margin-bottom:2px}
@@ -581,17 +615,34 @@ function updateUploadSelect(){
 // ─── DOCS ───
 async function loadDocs(){
   var u=API+'/api/docs';if(activeFolderId)u+='?folder_id='+activeFolderId;
-  var r=await fetch(u),d=await r.json();allDocs=d.documents||[];renderDocs();updatePodcastSelect()
+  var r=await fetch(u),d=await r.json();allDocs=d.documents||[];
+  // Load progress
+  try{
+    var pr=await fetch(API+'/api/progress'),pd=await pr.json();
+    var pmap={};pd.progress.forEach(function(p){pmap[p.id]=p});
+    allDocs.forEach(function(d){
+      var p=pmap[d.id];
+      if(p){d.mastered=p.mastered;d.weak_concepts=p.weak_concepts;d.feynman_count=p.feynman_count}
+    });
+  }catch(e){}
+  renderDocs();updatePodcastSelect()
 }
 function renderDocs(){
   var c=document.getElementById('doc-list');
   if(!allDocs.length){c.innerHTML='<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">暂无文档</div>';return}
   var h='';
   allDocs.forEach(function(d){
+    var prog=d.mastered||0, weaks=d.weak_concepts||[], fc=d.feynman_count||0;
     h+='<div class="doc-item'+(d.id===activeDocId?' active':'')+'" onclick="selectDoc(\''+d.id+'\')">';
     h+='<span class="doc-del" onclick="event.stopPropagation();deleteDoc(\''+d.id+'\')">✕</span>';
     h+='<div class="doc-title">'+d.title+'</div>';
-    h+='<div class="doc-meta">'+d.chunks+' 段落 · '+formatSize(d.size)+'</div>';
+    h+='<div class="doc-meta">'+d.chunks+' 段落 · '+formatSize(d.size)+(fc?' · '+fc+'次复述':'')+'</div>';
+    if(prog>0)h+='<div class="doc-progress"><div class="bar'+(prog<50?' weak':'')+'" style="width:'+prog+'%"></div></div>';
+    if(weaks.length){
+      h+='<div class="doc-weak">薄弱：';
+      weaks.slice(0,3).forEach(function(w){h+='<span>'+w+'</span>'});
+      h+='</div>';
+    }
     h+='<select class="doc-folder-sel" onchange="moveDoc(\''+d.id+'\',this.value)" onclick="event.stopPropagation()">';
     h+='<option value="">📂 未分类</option>';
     allFolders.forEach(function(f){h+='<option value="'+f.id+'"'+(d.folder_id===f.id?' selected':'')+'>'+f.name+'</option>'});
@@ -834,31 +885,46 @@ function renderLinks(data){
 /* ─── FEYNMAN ─── */
 var currentPassage='';
 
-async function startFeynman(){
+async function startFeynman(blindMode){
   if(!allDocs.length){toast('请先上传文档');return}
   var c=document.getElementById('exam-content');
   c.innerHTML='<div class="empty-state"><div class="es-icon">🧠</div><h2>挑选段落中...</h2></div>';
-  // Switch to exam tab
   switchView('exam');
   try{
-    var b={action:'pick',doc_id:activeDocId,folder_id:activeFolderId};
+    var b={action:'pick',doc_id:activeDocId,folder_id:activeFolderId,blind:!!blindMode};
     var r=await fetch(API+'/api/feynman',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
     var d=await r.json();
     if(d.error){c.innerHTML='<div class="empty-state"><h2>❌ '+d.error+'</h2></div>';return}
     currentPassage=d.passage;
+    d.blind=!!blindMode;
     renderFeynmanPrompt(d);
   }catch(e){c.innerHTML='<div class="empty-state"><h2>❌ '+e.message+'</h2></div>'}
 }
 
-function renderFeynmanPrompt(data){
-  var c=document.getElementById('exam-content');
-  var h='<h2 style="margin-bottom:20px;color:#ea4335">🧠 费曼复述</h2>';
-  h+='<p style="color:var(--text2);font-size:13.5px;margin-bottom:20px">用自己的话解释下面这段话。不要复述原文，用你能想到的最简单的方式说出来。</p>';
-  h+='<div class="feynman-passage"><div class="fp-label">📖 原文</div>'+data.passage.replace(/\n/g,'<br>')+'<div class="fp-source">来源：'+data.source+'</div></div>';
-  h+='<div class="feynman-explain"><textarea id="feynman-input" placeholder="用你自己的话解释这段话..."></textarea><br><button onclick="submitFeynman()">提交解释</button></div>';
-  h+='<div id="feynman-feedback"></div>';
-  c.innerHTML=h;
-  document.getElementById('feynman-input').focus();
+function toggleBlind(){
+  var blind=document.getElementById('feynman-blind');
+  var pass=document.getElementById('feynman-passage');
+  if(blind.checked){pass.classList.add('blurred');
+    if(!pass.querySelector('.feynman-show-btn')){
+      var btn=document.createElement('button');
+      btn.className='feynman-show-btn';btn.textContent='👁 显示原文';
+      btn.onclick=revealPassage;pass.appendChild(btn);
+    }
+  }else{
+    pass.classList.remove('blurred');
+    var b=pass.querySelector('.feynman-show-btn');if(b)b.remove();
+  }
+}
+
+function revealPassage(){
+  var pass=document.getElementById('feynman-passage');
+  pass.classList.remove('blurred');
+  var b=pass.querySelector('.feynman-show-btn');if(b)b.remove();
+  var blind=document.getElementById('feynman-blind');
+  if(blind)blind.checked=false;
+}
+
+
 }
 
 async function submitFeynman(){
@@ -869,13 +935,31 @@ async function submitFeynman(){
   var fb=document.getElementById('feynman-feedback');
   fb.innerHTML='<div class="empty-state" style="padding:20px"><div class="es-icon">⏳</div><p>评估中...</p></div>';
 
+  var blind=document.getElementById('feynman-blind');
+  var isBlind=blind?blind.checked:false;
+
   try{
-    var b={action:'evaluate',passage:currentPassage,explanation:exp};
+    var b={action:'evaluate',passage:currentPassage,explanation:exp,blind:isBlind,doc_id:activeDocId};
     var r=await fetch(API+'/api/feynman',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
     var d=await r.json();
     if(d.error){fb.innerHTML='<div class="empty-state"><h2>❌ '+d.error+'</h2></div>';return}
+
+    // Save progress
+    var update={feynman_count:1};
+    if(d.is_correct)update.feynman_correct=1;
+    if(d.weak_concepts&&d.weak_concepts.length)update.weak_concepts=d.weak_concepts;
+    update.feynman_history={passage:currentPassage.substring(0,100),explanation:exp.substring(0,100),verdict:d.verdict,blind:isBlind};
+    saveProgress(activeDocId,update);
+
     renderFeedback(d);
   }catch(e){fb.innerHTML='<div class="empty-state"><h2>❌ '+e.message+'</h2></div>'}
+}
+
+async function saveProgress(docId,update){
+  if(!docId)return;
+  try{
+    await fetch(API+'/api/progress',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({doc_id:docId,update:update})});
+  }catch(e){}
 }
 
 function renderFeedback(data){
@@ -923,12 +1007,12 @@ function renderFeedback(data){
     if(sections.tip.trim()){
       h+='<div class="fb-section"><h4>💡 一句话建议</h4><p>'+sections.tip.trim()+'</p></div>';
     }
-    h+='<div class="feedback-retry"><button onclick="startFeynman()">🔄 再来一段</button></div>';
+    h+='<div class="feedback-retry"><button onclick="startFeynman(document.getElementById('feynman-blind')&&document.getElementById('feynman-blind').checked)">🔄 再来一段</button></div>';
     h+='</div>';
     fb.innerHTML=h;
   }else{
     // Fallback: render raw feedback
-    fb.innerHTML='<div class="feedback-card '+vClass+'"><h3>'+data.verdict+'</h3><div style="white-space:pre-wrap;font-size:14px;line-height:1.8">'+data.feedback+'</div><div class="feedback-retry"><button onclick="startFeynman()">🔄 再来一段</button></div></div>';
+    fb.innerHTML='<div class="feedback-card '+vClass+'"><h3>'+data.verdict+'</h3><div style="white-space:pre-wrap;font-size:14px;line-height:1.8">'+data.feedback+'</div><div class="feedback-retry"><button onclick="startFeynman(document.getElementById('feynman-blind')&&document.getElementById('feynman-blind').checked)">🔄 再来一段</button></div></div>';
   }
   fb.scrollIntoView({behavior:'smooth'});
 }

@@ -674,16 +674,38 @@ def feynman():
     doc_ids = [d["id"] for d in docs]
 
     if action == "pick":
-        # Pick a key passage — prioritize reasoning/detailed content over definitions
-        candidates = search("原理 过程 方法 关系 区别 原因 论证 分析 所以 因此 例如 具体来说",
-                            top_k=8, doc_ids=doc_ids)
+        blind = data.get("blind", False)  # 盲复述模式：不显示原文
+
+        # Load user's progress for this doc
+        progress_path = os.path.join(INDEX_DIR, "progress.json")
+        progress = {}
+        if os.path.exists(progress_path):
+            with open(progress_path) as f:
+                progress = json.load(f)
+
+        weak_concepts = []
+        if doc_id and doc_id in progress:
+            weak_concepts = progress[doc_id].get("weak_concepts", [])
+
+        # Smart pick: prioritize weak concepts
+        candidates = None
+        if weak_concepts:
+            # Search for passages related to weak concepts
+            weak_query = " ".join(weak_concepts[:3])
+            candidates = search(weak_query, top_k=5, doc_ids=doc_ids)
+            if not candidates or len(candidates[0]["chunk_text"]) < 60:
+                candidates = None  # Fall through to default
+
         if not candidates:
-            candidates = search("内容 说明 介绍", top_k=5, doc_ids=doc_ids)
+            # Default: pick substantive passages
+            candidates = search("原理 过程 方法 关系 区别 原因 论证 分析 所以 因此 例如 具体来说",
+                                top_k=8, doc_ids=doc_ids)
+            if not candidates:
+                candidates = search("内容 说明 介绍", top_k=5, doc_ids=doc_ids)
 
         if not candidates:
             return jsonify({"error": "文档中没有足够长的段落用于复述"}), 404
 
-        # Pick the longest meaningful passage
         best = max(candidates, key=lambda x: len(x["chunk_text"]))
         passage = best["chunk_text"].strip()
         source_title = best["metadata"].get("title", best["metadata"].get("source", ""))
@@ -691,12 +713,17 @@ def feynman():
         return jsonify({
             "passage": passage,
             "source": source_title,
-            "length": len(passage)
+            "length": len(passage),
+            "blind": blind,
+            "hint": f"这段内容涉及: {', '.join(weak_concepts[:2])}" if weak_concepts and not blind else "",
+            "targeted": bool(weak_concepts)
         })
 
     elif action == "evaluate":
         passage = data.get("passage", "").strip()
         explanation = data.get("explanation", "").strip()
+        blind = data.get("blind", False)
+        doc_id_eval = data.get("doc_id", "")
 
         if not passage or not explanation:
             return jsonify({"error": "缺少原文或你的解释"}), 400
@@ -731,6 +758,10 @@ def feynman():
 - 学习者的解释和原文有哪些不一致？
 - 是否有过度推断或主观臆断？
 
+### 薄弱概念
+- 如果有理解错误，指出哪些概念需要重新学习（用「」标注，如「过拟合」）
+- 如果理解正确，这部分留空
+
 ### 一句话建议
 - 如果要真正理解这段内容，应该重点关注什么？
 
@@ -745,18 +776,27 @@ def feynman():
         if not result:
             return jsonify({"error": "评估失败，请重试"}), 500
 
-        # Parse verdict
         verdict = "⚠️ 部分正确"
         if "理解正确" in result:
             verdict = "✅ 理解正确"
         elif "理解有误" in result:
             verdict = "❌ 理解有误"
 
+        # Extract weak concepts for progress tracking
+        weak = []
+        for match in re.finditer(r'「([^」]+)」', result):
+            concept = match.group(1)
+            if len(concept) > 2 and len(concept) < 30:
+                weak.append(concept)
+
         return jsonify({
             "verdict": verdict,
             "feedback": result,
             "passage": passage,
-            "explanation": explanation
+            "explanation": explanation,
+            "blind": blind,
+            "weak_concepts": weak[:5],
+            "is_correct": "正确" in verdict
         })
 
     return jsonify({"error": "无效的 action"}), 400
@@ -881,6 +921,97 @@ def link():
         "doc_count": len(docs),
         "raw": result
     })
+
+
+
+@app.route("/api/progress", methods=["GET", "POST"])
+def progress():
+    """学习进度存取：记住每份文档的掌握状态、费曼历史、错题"""
+    path = os.path.join(INDEX_DIR, "progress.json")
+
+    def load_progress():
+        if os.path.exists(path):
+            with open(path) as f:
+                return json.load(f)
+        return {}
+
+    def save_progress(p):
+        with open(path, "w") as f:
+            json.dump(p, f, ensure_ascii=False, indent=2)
+
+    if request.method == "GET":
+        docs = load_docs()
+        progress = load_progress()
+
+        # Enrich doc list with progress data
+        enriched = []
+        for d in docs:
+            p = progress.get(d["id"], {})
+            enriched.append({
+                "id": d["id"],
+                "title": d["title"],
+                "created": d["created"],
+                "chunks": d.get("chunk_count", 0),
+                "mastered": p.get("mastered", 0),       # 0-100
+                "feynman_count": p.get("feynman_count", 0),
+                "feynman_correct": p.get("feynman_correct", 0),
+                "exam_score": p.get("exam_score"),
+                "weak_concepts": p.get("weak_concepts", []),
+                "last_accessed": p.get("last_accessed", "")
+            })
+
+        return jsonify({"progress": enriched})
+
+    elif request.method == "POST":
+        data = request.get_json()
+        doc_id = data.get("doc_id", "")
+        update = data.get("update", {})
+
+        if not doc_id:
+            return jsonify({"error": "doc_id required"}), 400
+
+        progress = load_progress()
+        entry = progress.get(doc_id, {
+            "mastered": 0,
+            "feynman_count": 0,
+            "feynman_correct": 0,
+            "exam_score": None,
+            "weak_concepts": [],
+            "mastered_concepts": [],
+            "feynman_history": [],
+            "exam_errors": [],
+            "last_accessed": ""
+        })
+
+        # Apply updates
+        for key, val in update.items():
+            if key in ("feynman_count", "feynman_correct"):
+                entry[key] = entry.get(key, 0) + val
+            elif key == "exam_score":
+                entry[key] = val
+            elif key in ("weak_concepts", "mastered_concepts"):
+                # Merge lists, deduplicate
+                existing = entry.get(key, [])
+                for item in val:
+                    if item not in existing:
+                        existing.append(item)
+                entry[key] = existing[-20:]  # Keep last 20
+            elif key == "feynman_history":
+                existing = entry.get(key, [])
+                existing.append(val)
+                entry[key] = existing[-30:]  # Keep last 30
+            elif key == "exam_errors":
+                existing = entry.get(key, [])
+                existing.append(val)
+                entry[key] = existing[-50:]
+            elif key == "mastered":
+                entry[key] = val
+
+        entry["last_accessed"] = datetime.now().isoformat()
+        progress[doc_id] = entry
+        save_progress(progress)
+
+        return jsonify({"ok": True, "progress": entry})
 
 
 @app.route("/api/health")
