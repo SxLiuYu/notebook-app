@@ -311,6 +311,9 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   .chat-inner,.podcast-inner{padding:24px 20px}
 }
 </style>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true, theme:"default", securityLevel:"loose"});</script>
 </head>
 <body>
 
@@ -342,6 +345,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   <div class="main-header">
     <button class="tab active" onclick="switchView('chat')">💬 问答</button>
     <button class="tab" onclick="switchView('podcast')">🎙️ 播客</button>
+    <button class="tab" onclick="switchView('exam')">📝 备考</button>
     <div class="tab-divider"></div>
     <span class="folder-badge" id="folder-badge">📂 全部文档</span>
   </div>
@@ -383,7 +387,31 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     </div>
   </div>
 
-  <!-- CHAT INPUT -->
+  
+  <!-- EXAM / STUDY MODE -->
+  <div class="exam-area" id="exam-area" style="display:none;flex:1;overflow-y:auto">
+    <div class="exam-inner" style="max-width:760px;margin:0 auto;padding:32px 24px">
+      <div class="exam-controls" style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap;align-items:center">
+        <select id="exam-type" style="padding:10px 16px;border-radius:24px;border:1px solid #dadce0;font-size:13.5px;background:#fafafa;cursor:pointer">
+          <option value="all">全部题型</option>
+          <option value="choice">选择题</option>
+          <option value="fill">填空题</option>
+          <option value="essay">简答题</option>
+        </select>
+        <button class="primary" onclick="generateExam()" style="padding:10px 24px;background:var(--accent);color:#fff;border:none;border-radius:24px;font-size:14px;font-weight:600;cursor:pointer">📝 生成试题</button>
+        <button class="primary" onclick="generateMindmap()" style="padding:10px 24px;background:#34a853;color:#fff;border:none;border-radius:24px;font-size:14px;font-weight:600;cursor:pointer">🧠 思维导图</button>
+      </div>
+      <div id="exam-content" style="background:var(--card);border-radius:12px;border:1px solid var(--border-light);padding:28px 32px;font-size:14.5px;line-height:1.8;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+        <div class="empty-state">
+          <div class="es-icon">📝</div>
+          <h2>备考模式</h2>
+          <p>基于文档生成考点梳理和自测题，或生成思维导图</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<!-- CHAT INPUT -->
   <div class="chat-input-wrap" id="chat-input-wrap">
     <div class="chat-input-inner">
       <textarea id="query-input" placeholder="向文档提问..." rows="1"
@@ -411,11 +439,12 @@ async function init(){await loadFolders();await loadDocs()}
 
 function switchView(v){
   currentView=v;
-  document.querySelectorAll('.tab').forEach(function(t,i){t.classList.toggle('active',(i==0&&v=='chat')||(i==1&&v=='podcast'))});
+  document.querySelectorAll('.tab').forEach(function(t,i){t.classList.toggle('active',(i==0&&v=='chat')||(i==1&&v=='podcast')||(i==2&&v=='exam'))});
   document.getElementById('chat-area').style.display=v=='chat'?'block':'none';
   document.getElementById('chat-input-wrap').style.display=v=='chat'?'flex':'none';
   document.getElementById('podcast-area').style.display=v=='podcast'?'block':'none';
   document.getElementById('podcast-controls').style.display=v=='podcast'?'flex':'none';
+  document.getElementById('exam-area').style.display=v=='exam'?'block':'none';
   if(v=='podcast')updatePodcastSelect();
 }
 
@@ -576,6 +605,103 @@ function updatePodcastSelect(){
   allDocs.forEach(function(d){s.innerHTML+='<option value="'+d.id+'">'+d.title+'</option>'})
 }
 init();
+
+/* ─── EXAM ─── */
+async function generateExam(){
+  if(!allDocs.length){toast('请先上传文档');return}
+  var c=document.getElementById('exam-content');
+  c.innerHTML='<div class="empty-state"><div class="es-icon">⏳</div><h2>生成试题中...</h2><p>正在梳理考点并出题</p></div>';
+  var t=document.getElementById('exam-type').value;
+  try{
+    var b={doc_id:activeDocId,folder_id:activeFolderId,type:t};
+    var r=await fetch(API+'/api/exam',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+    var d=await r.json();
+    if(d.error){c.innerHTML='<div class="empty-state"><h2>❌ '+d.error+'</h2></div>';return}
+    renderExam(d.raw,d.title);
+  }catch(e){c.innerHTML='<div class="empty-state"><h2>❌ '+e.message+'</h2></div>'}
+}
+
+function renderExam(raw,title){
+  var c=document.getElementById('exam-content');
+  var h='<h2 style="margin-bottom:20px;color:var(--accent)">📝 '+title+' — 考点与自测</h2>';
+
+  // Parse and render with simple formatting
+  var inCode=false, inAnswer=false;
+  var lines=raw.split('\n');
+  var qDiv='';
+
+  for(var i=0;i<lines.length;i++){
+    var l=lines[i].trim();
+    if(!l)continue;
+
+    // Section headers
+    if(l.includes('考点梳理')||l.includes('第一部分')){
+      h+='<h3 style="color:var(--accent-dark);margin-top:20px;padding:8px 0;border-bottom:2px solid var(--accent-light)">📋 考点梳理</h3>';
+      continue;
+    }
+    if(l.includes('自测题')||l.includes('第二部分')){
+      h+='<h3 style="color:var(--accent-dark);margin-top:24px;padding:8px 0;border-bottom:2px solid var(--accent-light)">✏️ 自测题</h3>';
+      continue;
+    }
+
+    // Star ratings
+    if(l.includes('★★★')){h+='<div style="background:#fef7e0;padding:8px 14px;border-radius:8px;margin:6px 0;border-left:3px solid #f9ab00">'+l+'</div>';continue}
+    if(l.includes('★★')){h+='<div style="background:#f0f7ff;padding:8px 14px;border-radius:8px;margin:6px 0;border-left:3px solid #4285f4">'+l+'</div>';continue}
+
+    // Answers
+    if(l.startsWith('答案：')||l.startsWith('答案:')){
+      h+='<div style="color:#34a853;font-weight:600;margin:4px 0 12px 20px">✅ '+l+'</div>';continue;
+    }
+    if(l.startsWith('解析：')||l.startsWith('解析:')){
+      h+='<div style="color:#5f6368;font-size:13px;margin:0 0 16px 20px;font-style:italic">💡 '+l+'</div>';continue;
+    }
+    if(l.startsWith('参考答案：')||l.startsWith('参考答案:')){
+      h+='<div style="color:#34a853;font-weight:600;margin:4px 0 16px 20px">✅ '+l+'</div>';continue;
+    }
+
+    // Questions (numbered)
+    if(/^\d+[\.\)、]/.test(l)){
+      h+='<div style="font-weight:600;margin:14px 0 6px;color:var(--text)">'+l+'</div>';continue;
+    }
+    // Options
+    if(/^[A-D][\.\)、]/.test(l)){
+      h+='<div style="margin:2px 0 2px 20px;color:var(--text2)">'+l+'</div>';continue;
+    }
+
+    h+='<div style="margin:4px 0">'+l+'</div>';
+  }
+
+  c.innerHTML=h;
+  c.scrollIntoView({behavior:'smooth'});
+}
+
+/* ─── MINDMAP ─── */
+async function generateMindmap(){
+  if(!allDocs.length){toast('请先上传文档');return}
+  var c=document.getElementById('exam-content');
+  c.innerHTML='<div class="empty-state"><div class="es-icon">🧠</div><h2>生成思维导图中...</h2><p>正在梳理知识结构</p></div>';
+  try{
+    var b={doc_id:activeDocId,folder_id:activeFolderId,depth:3};
+    var r=await fetch(API+'/api/mindmap',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+    var d=await r.json();
+    if(d.error){c.innerHTML='<div class="empty-state"><h2>❌ '+d.error+'</h2></div>';return}
+    renderMindmap(d.mermaid,d.title);
+  }catch(e){c.innerHTML='<div class="empty-state"><h2>❌ '+e.message+'</h2></div>'}
+}
+
+function renderMindmap(mermaidCode,title){
+  var c=document.getElementById('exam-content');
+  var id='mindmap-'+Date.now();
+  c.innerHTML='<h2 style="margin-bottom:16px;color:#34a853">🧠 '+title+' — 思维导图</h2>'+
+    '<div class="mermaid" id="'+id+'">'+mermaidCode+'</div>'+
+    '<div style="margin-top:16px"><details><summary style="cursor:pointer;color:var(--text3);font-size:13px">查看源码</summary><pre style="background:#f5f5f5;padding:12px;border-radius:8px;overflow-x:auto;font-size:12px;margin-top:8px">'+mermaidCode.replace(/</g,'&lt;')+'</pre></details></div>';
+
+  // Re-render mermaid
+  try{
+    mermaid.run({querySelector:'.mermaid'});
+  }catch(e){console.log('Mermaid render error:',e)}
+}
+
 
 /* ─── Knowledge Panel ─── */
 var knowledgeLoaded=false;

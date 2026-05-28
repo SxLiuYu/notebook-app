@@ -463,6 +463,193 @@ def knowledge():
     
     return jsonify(sections)
 
+
+@app.route("/api/exam", methods=["POST"])
+def exam():
+    """生成考点梳理 + 自测题（选择题/填空题/简答题）"""
+    data = request.get_json()
+    doc_id = data.get("doc_id", "")
+    folder_id = data.get("folder_id", "")
+    question_type = data.get("type", "all")  # all, choice, fill, essay
+    count = data.get("count", 10)
+
+    docs = load_docs()
+    if doc_id:
+        docs = [d for d in docs if d["id"] == doc_id]
+    elif folder_id:
+        if folder_id == "uncategorized":
+            docs = [d for d in docs if not d.get("folder_id")]
+        else:
+            docs = [d for d in docs if d.get("folder_id") == folder_id]
+
+    if not docs:
+        return jsonify({"error": "请先选择文档或分类"}), 400
+
+    # Gather content for exam generation
+    doc_ids = [d["id"] for d in docs]
+    # Search for key knowledge points first
+    key_chunks = search("核心概念 定义 公式 考点 重点 原理 方法 步骤 分类 区别 特点 作用 意义",
+                        top_k=15, doc_ids=doc_ids)
+
+    if not key_chunks:
+        key_chunks = search("内容 说明 介绍", top_k=10, doc_ids=doc_ids)
+
+    context_parts = []
+    for r in key_chunks[:12]:
+        title = r["metadata"].get("title", r["metadata"].get("source", ""))
+        context_parts.append(f"[{title}]\n{r['chunk_text']}")
+
+    context = "\n\n---\n\n".join(context_parts)
+
+    # Generate exam based on type
+    type_desc = {
+        "all": "选择题(4题)、填空题(3题)、简答题(3题)",
+        "choice": f"选择题({count}题)",
+        "fill": f"填空题({count}题)",
+        "essay": f"简答题({count}题)"
+    }.get(question_type, f"选择题(4题)、填空题(3题)、简答题(3题)")
+
+    prompt = f"""你是资深考试出题专家。基于以下文档内容，生成一份考点梳理和自测题。
+
+## 要求
+
+### 第一部分：考点梳理
+列出文档中的核心考点，按重要性排序，每个考点标注：
+- ★★★ 高频必考
+- ★★ 常考
+- ★ 了解即可
+
+### 第二部分：自测题
+生成{type_desc}。格式如下：
+
+**选择题**（每题4个选项，标注正确答案）：
+```
+1. 题目？
+A. 选项  B. 选项  C. 选项  D. 选项
+答案：X
+解析：一句话解释
+```
+
+**填空题**：
+```
+1. ______ 是XXX的核心概念。
+答案：XXX
+```
+
+**简答题**：
+```
+1. 题目？
+参考答案：XXX
+```
+
+注意：
+- 题目必须基于文档内容，不能凭空编造
+- 选择题选项要有迷惑性
+- 用中文出题
+- 先出考点梳理，再出自测题
+
+文档内容：
+{context}
+
+请生成："""
+
+    messages = [{"role": "user", "content": prompt}]
+    result = call_llm(messages, max_tokens=3072)
+
+    if not result:
+        return jsonify({"error": "生成失败，请重试"}), 500
+
+    # Parse result
+    return jsonify({
+        "raw": result,
+        "title": docs[0]["title"] if docs else "文档"
+    })
+
+
+
+@app.route("/api/mindmap", methods=["POST"])
+def mindmap():
+    """生成思维导图（Mermaid.js 格式）"""
+    data = request.get_json()
+    doc_id = data.get("doc_id", "")
+    folder_id = data.get("folder_id", "")
+    depth = data.get("depth", 3)  # 层级深度
+
+    docs = load_docs()
+    if doc_id:
+        docs = [d for d in docs if d["id"] == doc_id]
+    elif folder_id:
+        if folder_id == "uncategorized":
+            docs = [d for d in docs if not d.get("folder_id")]
+        else:
+            docs = [d for d in docs if d.get("folder_id") == folder_id]
+
+    if not docs:
+        return jsonify({"error": "请先选择文档或分类"}), 400
+
+    doc_ids = [d["id"] for d in docs]
+    key_chunks = search("主题 分类 概述 结构 框架 概念 方法 过程 步骤 原理",
+                        top_k=12, doc_ids=doc_ids)
+
+    context_parts = []
+    for r in key_chunks[:10]:
+        title = r["metadata"].get("title", "")
+        context_parts.append(f"[{title}]\n{r['chunk_text']}")
+    context = "\n\n---\n\n".join(context_parts)
+
+    prompt = f"""基于以下文档内容，生成 Mermaid.js mindmap 格式的思维导图。
+
+要求：
+1. 层级不超过{depth}层
+2. 中心主题用文档标题
+3. 只输出 Mermaid 代码块，不要其他文字
+4. 使用中文
+5. 每个节点简洁，不超过15个字
+6. 连线使用标准的 mindmap 语法
+
+示例格式：
+```mermaid
+mindmap
+  root((中心主题))
+    一级分支
+      二级知识
+        三级细节
+      二级知识
+    一级分支
+      二级知识
+```
+
+文档内容：
+{context}
+
+请生成Mermaid思维导图："""
+
+    messages = [{"role": "user", "content": prompt}]
+    result = call_llm(messages, max_tokens=2048)
+
+    if not result:
+        return jsonify({"error": "生成失败，请重试"}), 500
+
+    # Extract mermaid code
+    mermaid_code = result
+    if "```mermaid" in result:
+        start = result.find("```mermaid") + len("```mermaid")
+        end = result.find("```", start)
+        if end > start:
+            mermaid_code = result[start:end].strip()
+    elif "```" in result:
+        start = result.find("```") + 3
+        end = result.find("```", start)
+        if end > start:
+            mermaid_code = result[start:end].strip()
+
+    return jsonify({
+        "mermaid": mermaid_code,
+        "title": docs[0]["title"] if docs else "文档",
+        "raw": result
+    })
+
+
 @app.route("/api/health")
 def health():
     stats = get_stats()
