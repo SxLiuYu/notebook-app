@@ -5,9 +5,10 @@ from datetime import datetime
 from flask import Flask, request, jsonify, render_template
 import requests
 
-from document_processor import process_file, summarize
+from document_processor import process_file, summarize, process_text
 from rag_engine import add_documents, search, delete_document, get_stats, re_rank_with_llm
 from podcast_pipeline import generate_podcast as gen_podcast
+from multimodal_processor import video_to_text, audio_to_text, url_to_text
 
 app = Flask(__name__, static_folder="static")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -180,55 +181,167 @@ def del_doc(doc_id):
 
 @app.route("/api/upload", methods=["POST"])
 def upload():
+    # Handle URL upload via JSON body
+    if request.content_type and "application/json" in request.content_type:
+        data = request.get_json()
+        url = data.get("url", "").strip()
+        folder_id = data.get("folder_id") or None
+        if not url:
+            return jsonify({"error": "url required"}), 400
+        return _upload_url(url, folder_id)
+
+    # Handle file upload
     if "file" not in request.files:
         return jsonify({"error": "no file"}), 400
-    
+
     f = request.files["file"]
     if f.filename == "":
         return jsonify({"error": "no filename"}), 400
-    
+
     # Get folder_id from form data
     folder_id = request.form.get("folder_id", "") or None
-    
+
     filename = f.filename
+    ext = os.path.splitext(filename)[1].lower()
     filepath = os.path.join(DOCS_DIR, filename)
     f.save(filepath)
-    
-    result = process_file(filepath, filename)
-    chunks = result.get("chunks", [])
-    
-    if not chunks:
-        return jsonify({"error": "无法解析文档内容，请检查文件格式"}), 400
-    
+
     doc_id = hashlib.md5(f"{filename}{time.time()}".encode()).hexdigest()[:12]
-    
+    full_text = ""
+
+    # Detect file type and transcribe
+    if ext in (".mp4", ".mov", ".avi", ".mkv"):
+        full_text = video_to_text(filepath)
+        filename = f"video_{int(time.time())}.txt"
+    elif ext in (".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac"):
+        full_text = audio_to_text(filepath)
+        filename = f"audio_{int(time.time())}.txt"
+    else:
+        result = process_file(filepath, filename)
+        chunks = result.get("chunks", [])
+        if not chunks:
+            return jsonify({"error": "无法解析文档内容，请检查文件格式"}), 400
+        add_documents(doc_id, chunks, {"title": filename, "source": filename})
+        doc_summary = summarize(result["full_text"], 200)
+        doc = {
+            "id": doc_id,
+            "title": filename,
+            "filename": filename,
+            "created": datetime.now().isoformat(),
+            "size": len(result["full_text"]),
+            "chunk_count": len(chunks),
+            "summary": doc_summary,
+            "full_text": result["full_text"],
+            "folder_id": folder_id
+        }
+        docs = load_docs()
+        docs.append(doc)
+        save_docs(docs)
+        suggested = _generate_suggested_questions(result["full_text"])
+        gc.collect()
+        return jsonify({
+            "ok": True,
+            "doc": {
+                "id": doc_id, "title": filename, "chunks": len(chunks),
+                "summary": doc_summary, "suggested": suggested,
+                "folder_id": folder_id
+            }
+        })
+
+    # Video/audio: check for transcription error
+    if full_text.startswith("[ERROR:"):
+        return jsonify({"error": full_text}), 400
+
+    # Process transcribed text like a document
+    result = process_text(full_text, filename)
+    chunks = result.get("chunks", [])
+    if not chunks:
+        return jsonify({"error": "转写文本为空或无法分块"}), 400
+
     add_documents(doc_id, chunks, {"title": filename, "source": filename})
-    
-    doc_summary = summarize(result["full_text"], 200)
-    
+
+    doc_summary = summarize(full_text, 200)
+
     doc = {
         "id": doc_id,
         "title": filename,
         "filename": filename,
         "created": datetime.now().isoformat(),
-        "size": len(result["full_text"]),
+        "size": len(full_text),
         "chunk_count": len(chunks),
         "summary": doc_summary,
-        "full_text": result["full_text"],
+        "full_text": full_text,
         "folder_id": folder_id
     }
-    
+
     docs = load_docs()
     docs.append(doc)
     save_docs(docs)
-    
-    suggested = _generate_suggested_questions(result["full_text"])
+
+    suggested = _generate_suggested_questions(full_text)
     gc.collect()
-    
+
     return jsonify({
         "ok": True,
         "doc": {
             "id": doc_id, "title": filename, "chunks": len(chunks),
+            "summary": doc_summary, "suggested": suggested,
+            "folder_id": folder_id
+        }
+    })
+
+
+@app.route("/api/upload/url", methods=["POST"])
+def upload_url():
+    """Upload content from a URL."""
+    data = request.get_json()
+    url = data.get("url", "").strip()
+    folder_id = data.get("folder_id") or None
+    if not url:
+        return jsonify({"error": "url required"}), 400
+    return _upload_url(url, folder_id)
+
+
+def _upload_url(url, folder_id):
+    """Shared logic for URL ingestion: extract text, chunk, index."""
+    full_text = url_to_text(url)
+    if full_text.startswith("[ERROR:"):
+        return jsonify({"error": full_text}), 400
+
+    doc_id = hashlib.md5(f"{url}{time.time()}".encode()).hexdigest()[:12]
+
+    result = process_text(full_text, url)
+    chunks = result.get("chunks", [])
+    if not chunks:
+        return jsonify({"error": "URL内容无法分块"}), 400
+
+    add_documents(doc_id, chunks, {"title": url, "source": url})
+
+    doc_summary = summarize(full_text, 200)
+
+    doc = {
+        "id": doc_id,
+        "title": url,
+        "filename": url,
+        "created": datetime.now().isoformat(),
+        "size": len(full_text),
+        "chunk_count": len(chunks),
+        "summary": doc_summary,
+        "full_text": full_text,
+        "folder_id": folder_id
+    }
+
+    docs = load_docs()
+    docs.append(doc)
+    save_docs(docs)
+
+    suggested = _generate_suggested_questions(full_text)
+    gc.collect()
+
+    return jsonify({
+        "ok": True,
+        "doc": {
+            "id": doc_id, "title": url, "chunks": len(chunks),
             "summary": doc_summary, "suggested": suggested,
             "folder_id": folder_id
         }
