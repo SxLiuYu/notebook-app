@@ -1,5 +1,5 @@
 {
   "appId": "com.notebookai.app",
   "appName": "NotebookAI",
-  "webDir": "../nb-app-test"
+  "webDir": "www"
 }
