@@ -7,121 +7,156 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>NotebookAI</title>
 <style>
+:root{--bg:#f8f6f1;--primary:#1a1a2e;--accent:#e94560;--accent2:#4f46e5;--card:#fff;--text:#333;--muted:#888;--border:#eee;--success:#10b981}
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#faf7f2;--primary:#1a1a2e;--accent:#e94560;--card:#fff;--text:#333;--muted:#888}
-body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--text);padding-bottom:70px}
-.header{background:var(--primary);color:#fff;padding:16px 20px;position:sticky;top:0;z-index:100}
-.header h1{font-size:1.2em}
-.nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #eee;display:flex;z-index:100}
-.nav-item{flex:1;text-align:center;padding:10px 0;font-size:0.75em;color:var(--muted);cursor:pointer;border:none;background:#fff}
-.nav-item.active{color:var(--accent);font-weight:bold}
-.nav-item span{display:block;font-size:1.4em;margin-bottom:2px}
-.page{display:none;padding:16px}
+body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--text);padding-bottom:70px;-webkit-font-smoothing:antialiased}
+.header{background:var(--primary);color:#fff;padding:14px 20px;position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between}
+.header h1{font-size:1.1em;font-weight:600}
+.header-right{font-size:1.2em;cursor:pointer}
+.nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--border);display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom)}
+.nav-item{flex:1;text-align:center;padding:8px 0 6px;font-size:0.7em;color:var(--muted);cursor:pointer;border:none;background:#fff;transition:color 0.2s}
+.nav-item.active{color:var(--accent);font-weight:600}
+.nav-item span{display:block;font-size:1.5em;margin-bottom:1px}
+.page{display:none;padding:16px;padding-bottom:80px}
 .page.active{display:block}
-
-/* 文档列表 */
-.doc-card{background:var(--card);border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:0 2px 8px rgba(0,0,0,0.08)}
-.doc-title{font-weight:bold;font-size:0.95em;margin-bottom:6px}
-.doc-meta{font-size:0.8em;color:var(--muted)}
-.doc-summary{font-size:0.85em;color:#555;margin-top:6px;line-height:1.5}
-.empty{text-align:center;padding:40px;color:var(--muted)}
-
-/* 上传区 */
-.upload-zone{border:2px dashed #ccc;border-radius:12px;padding:30px;text-align:center;margin-bottom:16px;cursor:pointer;background:#fff}
-.upload-zone:active{background:#f0f0f0}
+.card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 2px 12px rgba(0,0,0,0.06);cursor:pointer;transition:transform 0.15s}
+.card:active{transform:scale(0.98)}
+.card-title{font-weight:600;font-size:0.95em;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.card-meta{font-size:0.78em;color:var(--muted);margin-top:4px}
+.card-desc{font-size:0.85em;color:#555;margin-top:6px;line-height:1.5}
+.upload-zone{border:2px dashed #ccc;border-radius:16px;padding:28px 20px;text-align:center;margin-bottom:16px;cursor:pointer;background:#fff;transition:border-color 0.2s}
+.upload-zone:hover{border-color:var(--accent)}
+.upload-zone .icon{font-size:2.4em;margin-bottom:8px}
 .upload-zone p{color:var(--muted);font-size:0.9em}
-.upload-zone .icon{font-size:2em;margin-bottom:8px}
-
-/* 问答 */
+.upload-zone small{color:#aaa;font-size:0.8em}
+.upload-progress{background:var(--card);border-radius:12px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;box-shadow:0 1px 4px rgba(0,0,0,0.05)}
+.progress-bar{flex:1;height:6px;background:#eee;border-radius:3px;overflow:hidden}
+.progress-fill{height:100%;background:var(--accent);border-radius:3px;transition:width 0.3s}
+.progress-text{font-size:0.8em;color:var(--muted);white-space:nowrap}
+.chat-area{flex:1;overflow-y:auto;padding-bottom:80px}
+.chat-empty{text-align:center;padding:50px 20px;color:var(--muted);font-size:0.9em}
 .chat-bubble{margin-bottom:12px}
-.chat-q{background:var(--accent);color:#fff;padding:10px 14px;border-radius:12px 12px 4px 12px;max-width:85%;margin-left:auto;font-size:0.9em}
-.chat-a{background:var(--card);padding:10px 14px;border-radius:12px 12px 12px 4px;max-width:85%;font-size:0.9em;line-height:1.6;box-shadow:0 1px 4px rgba(0,0,0,0.06)}
-.sources{margin-top:8px;display:flex;flex-wrap:wrap;gap:4px}
-.source-tag{background:#e8f5e9;color:#1a5c1a;padding:2px 8px;border-radius:10px;font-size:0.75em}
-.typing{color:var(--muted);font-size:0.85em;padding:8px 0}
-
-/* 加载动画 */
-.spinner{display:inline-block;width:16px;height:16px;border:2px solid #eee;border-top-color:var(--accent);border-radius:50%;animation:spin0.6s linear infinite;margin-right:6px;vertical-align:middle}
-@keyframes spin{to{transform:rotate(360deg)}
-
-/* 底部输入 */
-.input-bar{position:fixed;bottom:56px;left:0;right:0;background:#fff;padding:10px 16px;border-top:1px solid #eee;display:flex;gap:8px}
-.input-bar input{flex:1;padding:10px 14px;border:1px solid #ddd;border-radius:24px;font-size:0.95em}
-.input-bar button{padding:10px 18px;background:var(--primary);color:#fff;border:none;border-radius:24px;font-size:0.9em}
-
-/* 思维导图 */
-.mm-container{background:#fff;border-radius:12px;padding:16px;overflow:auto;min-height:300px}
-.mm-container svg{max-width:100%;height:auto}
-
-/* 知识库 */
-.know-card{background:#fff;border-radius:12px;padding:14px;margin-bottom:10px;border-left:4px solid var(--accent)}
-.know-card.red{border-left-color:#c62828}
-.know-card h3{font-size:0.95em;margin-bottom:6px}
-.know-card p{font-size:0.85em;color:#555;line-height:1.5}
+.chat-q{background:var(--accent);color:#fff;padding:10px 14px;border-radius:16px 16px 4px 16px;max-width:85%;margin-left:auto;font-size:0.9em;line-height:1.5;word-break:break-word}
+.chat-a{background:var(--card);padding:12px 14px;border-radius:16px 16px 16px 4px;max-width:85%;font-size:0.9em;line-height:1.6;box-shadow:0 1px 4px rgba(0,0,0,0.06);word-break:break-word}
+.chat-a p{margin:0}
+.sources{margin-top:10px;display:flex;flex-wrap:wrap;gap:5px}
+.source-tag{background:#f0f9f4;color:#1a5c1a;padding:3px 10px;border-radius:20px;font-size:0.75em}
+.typing{color:var(--muted);font-size:0.85em;padding:4px 0;display:flex;align-items:center;gap:6px}
+.typing-dots{display:flex;gap:3px}
+.typing-dots span{width:6px;height:6px;background:var(--muted);border-radius:50%;animation:dot 1.2s infinite}
+.typing-dots span:nth-child(2){animation-delay:0.2s}
+.typing-dots span:nth-child(3){animation-delay:0.4s}
+@keyframes dot{0%,60%{opacity:0.3}100%{opacity:1}}
+.input-bar{position:fixed;bottom:56px;left:0;right:0;background:#fff;padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:8px;z-index:90}
+.input-bar input{flex:1;padding:10px 14px;border:1.5px solid var(--border);border-radius:24px;font-size:0.95em;outline:none}
+.input-bar input:focus{border-color:var(--accent)}
+.input-bar button{padding:10px 18px;background:var(--primary);color:#fff;border:none;border-radius:24px;font-size:0.9em;cursor:pointer}
+.input-bar button:disabled{opacity:0.5;cursor:not-allowed}
+.know-card{background:var(--card);border-radius:14px;padding:14px 16px;margin-bottom:10px;border-left:4px solid var(--success);box-shadow:0 1px 6px rgba(0,0,0,0.05)}
+.know-card.red{border-left-color:var(--accent)}
+.know-card.blue{border-left-color:var(--accent2)}
+.know-card h3{font-size:0.95em;margin-bottom:6px;font-weight:600}
+.know-card p{font-size:0.85em;color:#555;line-height:1.6}
 .know-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
 .know-tag{background:#f0f0f0;padding:2px 8px;border-radius:10px;font-size:0.75em;color:#666}
+.setting-item{background:var(--card);border-radius:12px;padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;cursor:pointer}
+.setting-label{font-size:0.9em}
+.setting-value{font-size:0.85em;color:var(--muted);max-width:60%;text-align:right;word-break:break-all}
+.badge{display:inline-block;background:var(--accent);color:#fff;font-size:0.65em;padding:2px 6px;border-radius:10px;vertical-align:middle;margin-left:6px}
+.tool-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+.tool-card{background:#fff;border-radius:12px;padding:14px;text-align:center;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,0.04);transition:transform 0.15s}
+.tool-card:active{transform:scale(0.96)}
+.tool-card .icon{font-size:1.8em;margin-bottom:4px}
+.tool-card .name{font-size:0.82em;font-weight:500}
+.mm-container{background:#fff;border-radius:14px;padding:16px;overflow:auto;min-height:300px}
+.mm-container svg{max-width:100%;height:auto;display:block;margin:0 auto}
+.action-bar{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.action-btn{flex:1;min-width:80px;padding:8px;background:#f5f5f5;border:none;border-radius:10px;font-size:0.8em;cursor:pointer;text-align:center}
+.action-btn .icon{display:block;font-size:1.2em;margin-bottom:2px}
+.action-btn span{display:block;font-size:0.75em}
+.toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:24px;font-size:0.85em;z-index:999;animation:fadeIn 0.3s;pointer-events:none}
+@keyframes fadeIn{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:flex;align-items:flex-end}
+.modal{background:#fff;border-radius:20px 20px 0 0;width:100%;max-height:80vh;overflow-y:auto;padding:20px}
+.modal-title{font-size:1em;font-weight:600;margin-bottom:16px;text-align:center}
+.modal-close{text-align:center;color:var(--muted);font-size:0.85em;margin-top:12px;cursor:pointer}
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid #eee;border-top-color:var(--accent);border-radius:50%;animation:spin 0.6s linear infinite;margin-right:6px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{text-align:center;padding:40px 20px;color:var(--muted);font-size:0.9em}
+.empty .icon{font-size:2.5em;margin-bottom:10px;opacity:0.5}
 </style>
 </head>
 <body>
-
 <div class="header">
   <h1>📚 NotebookAI</h1>
+  <span class="header-right" onclick="showSettings()">⚙️</span>
 </div>
 
-<!-- 首页 Tab -->
+<!-- 首页 -->
 <div class="page active" id="tab-home">
-  <div class="doc-card" style="cursor:pointer" onclick="switchTab('docs')">
-    <div class="doc-title">📄 文档库</div>
-    <div class="doc-meta" id="docCount">0份文档 · 0 个片段</div>
-    <div style="margin-top:8px">
-      <button style="padding:8px 16px;background:#1a1a2e;color:#fff;border:none;border-radius:8px;font-size:0.85em">查看文档</button>
+  <div class="card" onclick="switchTab('docs')" style="background:linear-gradient(135deg,#1a1a2e,#2d2d5a);color:#fff">
+    <div class="card-title">📄 文档库 <span id="docCountBadge" class="badge">0</span></div>
+    <div class="card-meta" style="color:#aaa" id="docCountHome">0份文档 · 0个片段</div>
+    <div class="action-bar" style="margin-top:12px">
+      <button class="action-btn" onclick="event.stopPropagation();switchTab('docs')" style="background:rgba(255,255,255,0.15);color:#fff">
+        <span class="icon">📤</span><span>上传文档</span>
+      </button>
     </div>
   </div>
-  <div class="doc-card">
-    <div class="doc-title">💡 快速问答</div>
-    <div class="doc-summary">选择左侧文档，直接问任何问题</div>
+  <div class="card-title" style="padding:8px 4px;font-size:0.9em;color:var(--muted)">AI 工具</div>
+  <div class="tool-grid">
+    <div class="tool-card" onclick="switchTab('ask')"><div class="icon">💬</div><div class="name">智能问答</div></div>
+    <div class="tool-card" onclick="switchTab('know')"><div class="icon">🧠</div><div class="name">知识整理</div></div>
+    <div class="tool-card" onclick="doMindmap()"><div class="icon">🗺️</div><div class="name">思维导图</div></div>
+    <div class="tool-card" onclick="doSuggest()"><div class="icon">💡</div><div class="name">内容推荐</div></div>
   </div>
 </div>
 
-<!--文档 Tab -->
+<!-- 文档 Tab -->
 <div class="page" id="tab-docs">
   <div class="upload-zone" onclick="document.getElementById('fileInput').click()">
     <div class="icon">📤</div>
-    <p>点击上传文档<br><small style="color:#aaa">PDF · DOCX · TXT · MD</small></p>
+    <p>点击上传文件</p>
+    <small>文档 · 视频 · 音频 · 图片</small>
   </div>
-  <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.md" style="display:none" onchange="handleFileUpload(this)">
+  <input type="file" id="fileInput" accept=".pdf,.docx,.doc,.txt,.md,.pptx,.xlsx,.mp4,.mov,.mp3,.wav,.m4a,.jpg,.jpeg,.png,.gif,.webp" style="display:none" onchange="handleFileUpload(this)">
+  <div id="uploadList"></div>
   <div id="docList"></div>
 </div>
 
 <!-- 问答 Tab -->
 <div class="page" id="tab-ask">
   <div id="chatArea">
-    <div class="empty">👆 先在文档页上传文件，再来这里问答</div>
+    <div class="chat-empty">
+      <div class="icon">💬</div>
+      上传文档后来这里问答<br><br>
+      <button onclick="switchTab('docs')" style="background:var(--accent);color:#fff;border:none;padding:10px 24px;border-radius:24px;font-size:0.9em;cursor:pointer">去上传文档</button>
+    </div>
   </div>
   <div class="input-bar">
-    <input type="text" id="queryInput" placeholder="输入问题，按发送..." onkeydown="if(event.key==='Enter')sendAsk()">
-    <button onclick="sendAsk()">发送</button>
+    <input type="text" id="queryInput" placeholder="输入问题..." onkeydown="if(event.key==='Enter')sendAsk()">
+    <button onclick="sendAsk()" id="sendBtn">发送</button>
   </div>
 </div>
 
 <!-- 知识 Tab -->
 <div class="page" id="tab-know">
-  <div id="knowList"></div>
+  <div class="card" style="padding:12px 16px" onclick="doKnowledge()">
+    <div class="card-title">🧠 生成知识结构</div>
+    <div class="card-desc">从已上传文档中提取结构化知识</div>
+  </div>
+  <div id="knowList">
+    <div class="empty"><div class="icon">🧠</div>上传文档后，点击上方卡片生成知识结构</div>
+  </div>
 </div>
 
 <!-- 我的 Tab -->
 <div class="page" id="tab-me">
-  <div class="doc-card">
-    <div class="doc-title">⚙️ 设置</div>
-    <div class="doc-summary">API 配置 · 服务器地址</div>
-  </div>
-  <div class="doc-card">
-    <div class="doc-title">📊 统计</div>
-    <div class="doc-summary" id="statsBox">加载中...</div>
-  </div>
-  <div style="padding:16px;text-align:center;color:#aaa;font-size:0.8em">
-    NotebookAI v1.0.0<br>Powered by Mavis + FinnA
-  </div>
+  <div class="setting-item" onclick="switchTab('docs')"><span class="setting-label">📄 我的文档</span><span class="setting-value" id="meDocCount">0份</span></div>
+  <div class="setting-item" onclick="switchTab('ask')"><span class="setting-label">💬 问答记录</span><span class="setting-value" id="meChatCount">0条</span></div>
+  <div class="setting-item" onclick="showSettings()"><span class="setting-label">⚙️ 服务器设置</span><span class="setting-value" id="serverDisplay">点击配置</span></div>
+  <div class="setting-item" onclick="clearAllData()"><span class="setting-label">🗑️ 清除本地数据</span></div>
+  <div style="padding:20px;text-align:center;color:#aaa;font-size:0.8em">NotebookAI v1.1.0<br>Powered by MiniMax</div>
 </div>
 
 <div class="nav">
@@ -133,24 +168,31 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
 </div>
 
 <script>
-const API_BASE = 'http://localhost:8095/api';
-let currentDocId = null;
-let chatHistory = [];
-let docs = [];
+const API_BASE = (() => {
+  const saved = localStorage.getItem('nb_api');
+  if(saved) return saved;
+  const isMobile = /Mobi|Android|iPhone/i.test(navigator.userAgent);
+  return isMobile ? 'http://123.57.107.21:8095/api' : 'http://localhost:8095/api';
+})();
+let currentDocId = null, chatHistory = [], docs = [], uploads = [];
 
-// 标签切换
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2500);
+}
+
 function switchTab(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
   event && event.currentTarget && event.currentTarget.classList.add('active');
   if(name === 'docs') loadDocs();
-  if(name === 'ask') loadChat();
-  if(name === 'know') loadKnowledge();
-  if(name === 'me') loadStats();
+  if(name === 'me') loadMe();
 }
 
-// 加载文档列表
 async function loadDocs() {
   try {
     const resp = await fetch(API_BASE + '/docs');
@@ -158,128 +200,185 @@ async function loadDocs() {
     docs = data.documents || [];
     const list = document.getElementById('docList');
     if(!docs.length) {
-      list.innerHTML = '<div class="empty">暂无文档，上传一个试试</div>';
-      return;
+      list.innerHTML = '<div class="empty"><div class="icon">📂</div>暂无文档</div>';
+    } else {
+      list.innerHTML = '<div class="card-title" style="padding:8px 4px;font-size:0.85em;color:var(--muted);margin-top:4px">📂 已上传</div>' +
+        docs.map(d => `<div class="card" onclick="selectDoc('${d.id}')">
+          <div class="card-title">${getFileIcon(d.title)} ${d.title}</div>
+          <div class="card-meta">${d.chunks} 片段 · ${d.size} 字</div>
+          ${d.summary ? '<div class="card-desc">'+d.summary+'</div>' : ''}
+          <div class="action-bar">
+            <button class="action-btn" onclick="event.stopPropagation();askAboutDoc('${d.id}')"><span class="icon">💬</span><span>问答</span></button>
+            <button class="action-btn" onclick="event.stopPropagation();delDoc('${d.id}')"><span class="icon">🗑️</span><span>删除</span></button>
+          </div>
+        </div>`).join('');
     }
-    list.innerHTML = docs.map(d => `
-      <div class="doc-card" onclick="selectDoc('${d.id}')">
-        <div class="doc-title">${d.title}</div>
-        <div class="doc-meta">${d.chunks} 片段 · ${d.size} 字</div>
-        ${d.summary ? '<div class="doc-summary">' + d.summary + '</div>' : ''}
-      </div>
-    `).join('');
-    document.getElementById('docCount').textContent = docs.length + '份文档';
+    document.getElementById('docCountBadge').textContent = docs.length;
+    document.getElementById('docCountHome').textContent = docs.length + '份文档 · ' + (docs.reduce((s,d)=>s+(d.chunks||0),0)) + '个片段';
   } catch(e) {
-    document.getElementById('docList').innerHTML = '<div class="empty">连接失败，请确保服务已启动</div>';
+    document.getElementById('docList').innerHTML = '<div class="empty">连接失败<br><small style="color:#e94560">'+e.message+'</small><br><br><button onclick="showSettings()" style="background:var(--primary);color:#fff;border:none;padding:8px 20px;border-radius:20px;font-size:0.85em;cursor:pointer">配置服务器</button></div>';
   }
 }
 
-// 选择文档
-function selectDoc(id) {
-  currentDocId = id;
-  switchTab('ask');
-  document.getElementById('chatArea').innerHTML = '<div class="empty">文档已选择，开始问答吧！</div>';
+function getFileIcon(name) {
+  const icons = {pdf:'📕',doc:'📘',docx:'📘',txt:'📝',md:'📝',xlsx:'📊',pptx:'📊',mp4:'🎬',mov:'🎬',mp3:'🎵',wav:'🎵',m4a:'🎵',jpg:'🖼️',jpeg:'🖼️',png:'🖼️',gif:'🖼️'};
+  return icons[name.split('.').pop().toLowerCase()] || '📄';
 }
 
-// 上传文件
 async function handleFileUpload(input) {
   const file = input.files[0];
   if(!file) return;
+  const id = 'up-' + Date.now();
+  uploads.push({id, name: file.name, progress: 0, done: false});
+  const list = document.getElementById('uploadList');
+  list.innerHTML = uploads.map(u => `<div class="upload-progress" id="${u.id}">
+    <span style="font-size:1.2em">${getFileIcon(u.name)}</span>
+    <div style="flex:1"><div style="font-size:0.85em;margin-bottom:4px">${u.name}</div><div class="progress-bar"><div class="progress-fill" style="width:${u.progress}%"></div></div></div>
+    <span class="progress-text" id="${u.id}-pct">${u.done?'✓':u.progress+'%'}</span>
+  </div>`).join('');
+  const sim = setInterval(() => {
+    const u = uploads.find(x=>x.id===id);
+    if(!u||u.done){clearInterval(sim);return;}
+    u.progress = Math.min(u.progress+15,90);
+    const el = document.getElementById(id);
+    if(el){el.querySelector('.progress-fill').style.width=u.progress+'%';document.getElementById(id+'-pct').textContent=u.progress+'%';}
+  }, 200);
   const fd = new FormData();
   fd.append('file', file);
-  if(currentDocId) fd.append('folder_id', '');
+  if(currentDocId) fd.append('folder_id', currentDocId);
   try {
     const resp = await fetch(API_BASE + '/upload', {method:'POST', body:fd});
     const data = await resp.json();
-    if(data.ok) {
-      currentDocId = data.doc.id;
-      loadDocs();
-      switchTab('ask');
-      document.getElementById('chatArea').innerHTML = '<div class="empty">上传成功！"' + data.doc.title + '"已就绪，开始问答吧！</div>';
-    } else {
-      alert('上传失败: ' + (data.error || '未知错误'));
-    }
-  } catch(e) {
-    alert('连接失败: ' + e.message);
-  }
-  input.value = '';
+    clearInterval(sim);
+    const u = uploads.find(x=>x.id===id);
+    u.progress=100;u.done=true;
+    const el = document.getElementById(id);
+    if(el){el.querySelector('.progress-fill').style.width='100%';document.getElementById(id+'-pct').textContent='✓';el.style.borderLeft='4px solid var(--success)';}
+    if(data.ok){currentDocId=data.doc.id;toast('上传成功！');setTimeout(()=>{uploads=uploads.filter(x=>x.id!==id);list.innerHTML='';},1500);}
+    else toast('失败: '+(data.error||'未知错误'));
+  } catch(e){clearInterval(sim);toast('上传失败: '+e.message);}
+  input.value='';
 }
 
-// 加载问答
-function loadChat() {
-  if(currentDocId) {
-    const existing = document.getElementById('chatArea').innerHTML;
-    if(existing.includes('empty')) document.getElementById('chatArea').innerHTML = '';
-  }
+function selectDoc(id) {currentDocId=id;switchTab('ask');const doc=docs.find(d=>d.id===id);document.getElementById('chatArea').innerHTML='<div class="chat-empty"><div class="icon">💬</div>已选择: <strong>'+(doc?doc.title:id)+'</strong><br>开始问答吧</div>';}
+function askAboutDoc(id){selectDoc(id);}
+
+async function delDoc(id) {
+  if(!confirm('确定删除这篇文档？')) return;
+  try {await fetch(API_BASE+'/docs/'+id,{method:'DELETE'});toast('已删除');loadDocs();} catch(e){toast('删除失败');}
 }
 
-// 发送问答
 async function sendAsk() {
   const input = document.getElementById('queryInput');
   const q = input.value.trim();
   if(!q) return;
-  if(!currentDocId) { alert('请先上传文档'); return; }
-
+  if(!currentDocId){toast('请先选择文档');switchTab('docs');return;}
+  document.getElementById('sendBtn').disabled=true;
   const area = document.getElementById('chatArea');
-  area.innerHTML += `<div class="chat-bubble"><div class="chat-q">${q}</div></div>`;
-  area.innerHTML += `<div class="chat-bubble"><div class="chat-a"><span class="spinner"></span>思考中...</div></div>`;
-  area.scrollTop = area.scrollHeight;
-  input.value = '';
-
+  const empty = area.querySelector('.chat-empty');
+  if(empty) area.innerHTML='';
+  area.innerHTML+=`<div class="chat-bubble"><div class="chat-q">${escapeHtml(q)}</div></div>`;
+  area.innerHTML+=`<div class="chat-bubble" id="loadingBubble"><div class="typing"><div class="typing-dots"><span></span><span></span><span></span></div>思考中...</div></div>`;
+  area.scrollTop=area.scrollHeight;
+  input.value='';
   try {
-    const resp = await fetch(API_BASE + '/ask', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({query: q, doc_id: currentDocId, history: chatHistory})
-    });
+    const resp = await fetch(API_BASE+'/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q,doc_id:currentDocId,history:chatHistory})});
     const data = await resp.json();
-    chatHistory.push({role:'user', content: q});
-    chatHistory.push({role:'assistant', content: data.answer});
-
-    // 移除loading
-    area.querySelectorAll('.chat-a').forEach(a => {
-      if(a.textContent.includes('思考中')) a.parentElement.remove();
-    });
-    area.innerHTML += `<div class="chat-bubble"><div class="chat-a">${data.answer}${data.sources && data.sources.length ? '<div class="sources">' + data.sources.map(s => '<span class="source-tag">📄 '+s.title+'</span>').join('') + '</div>' : ''}</div></div>`;
-    area.scrollTop = area.scrollHeight;
-  } catch(e) {
-    area.querySelectorAll('.chat-a').forEach(a => {
-      if(a.textContent.includes('思考中')) a.innerHTML = '请求失败: ' + e.message;
-    });
+    chatHistory.push({role:'user',content:q});
+    chatHistory.push({role:'assistant',content:data.answer||''});
+    const loading=document.getElementById('loadingBubble');
+    if(loading) loading.remove();
+    area.innerHTML+=`<div class="chat-bubble"><div class="chat-a">${data.answer||'（无回复）'}${data.sources&&data.sources.length?'<div class="sources">'+data.sources.map(s=>'<span class="source-tag">📄 '+escapeHtml(s.title||s.chunk_id)+'</span>').join('')+'</div>':''}</div></div>`;
+    area.scrollTop=area.scrollHeight;
+  } catch(e){
+    const loading=document.getElementById('loadingBubble');
+    if(loading) loading.innerHTML=`<div class="chat-a" style="color:var(--accent)">请求失败: ${e.message}</div>`;
   }
+  document.getElementById('sendBtn').disabled=false;
 }
 
-// 加载统计
-async function loadStats() {
+function escapeHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+async function doKnowledge() {
+  if(!currentDocId&&!docs.length){toast('请先上传文档');switchTab('docs');return;}
+  const list=document.getElementById('knowList');
+  list.innerHTML='<div class="empty"><div class="typing"><div class="typing-dots"><span></span><span></span><span></span></div>正在整理...</div></div>';
   try {
-    const resp = await fetch(API_BASE + '/health');
-    const data = await resp.json();
-    document.getElementById('statsBox').textContent = '文档: ' + data.docs + ' · 片段: ' + data.chunks;
-  } catch(e) {
-    document.getElementById('statsBox').textContent = '服务未连接';
-  }
+    const doc_id=currentDocId||(docs[0]?docs[0].id:'');
+    const resp=await fetch(API_BASE+'/knowledge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({doc_id})});
+    const data=await resp.json();
+    if(data.error){toast(data.error);return;}
+    const items=data.knowledge||[];
+    list.innerHTML=items.length?items.map(k=>`<div class="know-card ${k.type==='warning'?'red':k.type==='tip'?'blue':''}"><h3>${k.title||'知识点'}</h3><p>${k.content||k.summary||''}</p>${k.tags?'<div class="know-tags">'+k.tags.map(t=>'<span class="know-tag">'+t+'</span>').join('')+'</div>':''}</div>`).join(''):'<div class="empty">未提取到知识</div>';
+  } catch(e){list.innerHTML=`<div class="empty" style="color:var(--accent)">提取失败: ${e.message}</div>`;}
 }
 
-// 加载知识库
-async function loadKnowledge() {
-  document.getElementById('knowList').innerHTML = '<div class="empty">知识库加载中...</div>';
-  // 内置知识库演示
-  const kbs = [
-    {title:'食物红榜：鸡蛋', summary:'一天2-3个鸡蛋，胜过海参燕窝虫草。蛋白质姓蛋！', type:'green'},
-    {title:'智商税：骨头汤', summary:'骨头汤补不了钙，喝牛奶才是正解。营养在肉里，不在汤里。', type:'red'},
-    {title:'健康习惯：睡眠', summary:'睡好美容觉比任何护肤程序都重要，睡眠是最好的抗衰老手段。', type:'green'},
-    {title:'智商税：果汁奶茶', summary:'水果高糖，一天不超过200g；果汁更不健康，好果不打汁。', type:'red'},
-    {title:'营养素：Omega-3', summary:'DHA补脑，EPA清血管，深海鱼是最好来源。', type:'green'},
-  ];
-  document.getElementById('knowList').innerHTML = kbs.map(k => `
-    <div class="know-card ${k.type}">
-      <h3>${k.title}</h3>
-      <p>${k.summary}</p>
-    </div>
-  `).join('');
+async function doMindmap() {
+  if(!currentDocId&&!docs.length){toast('请先上传文档');switchTab('docs');return;}
+  const doc_id=currentDocId||(docs[0]?docs[0].id:'');
+  showModal('思维导图','<div style="text-align:center;padding:30px"><div class="typing"><div class="typing-dots"><span></span><span></span><span></span></div>生成中...</div></div>');
+  try {
+    const resp=await fetch(API_BASE+'/mindmap',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({doc_id,format:'svg'})});
+    const data=await resp.json();
+    closeModal();
+    if(data.svg) showModal('🗺️ 思维导图','<div class="mm-container"><div style="margin-bottom:12px;font-size:0.85em;color:var(--muted)">点击节点查看详情</div>'+data.svg+'</div>');
+    else if(data.mermaid) showModal('🗺️ 思维导图','<div class="mm-container"><pre style="font-size:0.8em;overflow:auto">'+data.mermaid+'</pre></div>');
+    else if(data.error) toast(data.error);
+  } catch(e){closeModal();toast('生成失败: '+e.message);}
 }
 
-// 初始化
+async function doSuggest() {
+  if(!currentDocId&&!docs.length){toast('请先上传文档');switchTab('docs');return;}
+  const doc_id=currentDocId||(docs[0]?docs[0].id:'');
+  const list=document.getElementById('knowList');
+  list.innerHTML='<div class="empty"><div class="typing"><div class="typing-dots"><span></span><span></span><span></span></div>生成推荐...</div></div>';
+  try {
+    const resp=await fetch(API_BASE+'/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({doc_id})});
+    const data=await resp.json();
+    const items=data.suggestions||[];
+    list.innerHTML=items.length?items.map((s,i)=>`<div class="card" onclick="selectDoc('${doc_id}');document.getElementById('queryInput').value='${escapeHtml(s.title||s)}';sendAsk()"><div class="card-title">💡 ${i+1}. ${s.title||s}</div><div class="card-desc">${s.reason||''}</div></div>`).join(''):'<div class="empty">暂无推荐</div>';
+  } catch(e){list.innerHTML=`<div class="empty" style="color:var(--accent)">失败: ${e.message}</div>`;}
+}
+
+function showModal(title,content){
+  const overlay=document.createElement('div');
+  overlay.className='modal-overlay';
+  overlay.id='modalOverlay';
+  overlay.onclick=(e)=>{if(e.target===overlay)closeModal();};
+  overlay.innerHTML=`<div class="modal"><div class="modal-title">${title}</div>${content}<div class="modal-close" onclick="closeModal()">关闭</div></div>`;
+  document.body.appendChild(overlay);
+}
+function closeModal(){const m=document.getElementById('modalOverlay');if(m)m.remove();}
+
+function showSettings(){
+  const current=localStorage.getItem('nb_api')||'http://123.57.107.21:8095/api';
+  showModal('⚙️ 服务器设置',`<div style="margin-bottom:16px"><label style="font-size:0.85em;color:var(--muted);display:block;margin-bottom:6px">服务器地址</label><input type="text" id="apiInput" value="${current}" style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:12px;font-size:0.9em;outline:none"></div><button onclick="saveAPI()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:12px;font-size:0.95em;cursor:pointer">保存</button><div style="margin-top:12px;font-size:0.8em;color:var(--muted);text-align:center">默认: http://123.57.107.21:8095/api</div>`);
+}
+function saveAPI(){
+  const val=document.getElementById('apiInput').value.trim();
+  localStorage.setItem('nb_api',val);
+  closeModal();
+  toast('已保存');
+  document.getElementById('serverDisplay').textContent=val;
+  location.reload();
+}
+
+function loadMe(){
+  document.getElementById('meDocCount').textContent=docs.length+'份';
+  document.getElementById('meChatCount').textContent=chatHistory.length+'条';
+  const saved=localStorage.getItem('nb_api')||'';
+  document.getElementById('serverDisplay').textContent=saved?saved.split('/api')[0]:'未配置';
+}
+
+function clearAllData(){
+  if(!confirm('确定清除所有本地数据？这不会删除服务器上的文档。')) return;
+  localStorage.clear();
+  chatHistory=[];
+  docs=[];
+  toast('已清除');
+  loadMe();
+}
+
 loadDocs();
 </script>
 </body>
