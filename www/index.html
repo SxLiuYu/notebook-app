@@ -109,6 +109,11 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
     <div class="tool-card" onclick="switchTab('know')"><div class="icon">🧠</div><div class="name">知识整理</div></div>
     <div class="tool-card" onclick="doMindmap()"><div class="icon">🗺️</div><div class="name">思维导图</div></div>
     <div class="tool-card" onclick="doSuggest()"><div class="icon">💡</div><div class="name">内容推荐</div></div>
+    <div class="tool-card" onclick="doPodcast()"><div class="icon">🎙️</div><div class="name">播客生成</div></div>
+    <div class="tool-card" onclick="doExam()"><div class="icon">📝</div><div class="name">测试生成</div></div>
+    <div class="tool-card" onclick="doFeynman()"><div class="icon">🎓</div><div class="name">费曼学习</div></div>
+    <div class="tool-card" onclick="doLink()"><div class="icon">🔗</div><div class="name">知识关联</div></div>
+    <div class="tool-card" onclick="showUrlUpload()"><div class="icon">🔍</div><div class="name">链接解析</div></div>
   </div>
 </div>
 
@@ -119,7 +124,17 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
     <p>点击上传文件</p>
     <small>文档 · 视频 · 音频 · 图片</small>
   </div>
+  <button onclick="showUrlUpload()" style="width:100%;padding:10px;background:#f0f0f0;border:1px solid #ddd;border-radius:12px;font-size:0.88em;cursor:pointer;margin-bottom:12px;color:var(--primary)">
+    🔗 粘贴链接解析（网页/文章）
+  </button>
   <input type="file" id="fileInput" accept=".pdf,.docx,.doc,.txt,.md,.pptx,.xlsx,.mp4,.mov,.mp3,.wav,.m4a,.jpg,.jpeg,.png,.gif,.webp" style="display:none" onchange="handleFileUpload(this)">
+  <div id="folderBar" style="margin-bottom:12px;display:none">
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <input type="text" id="newFolderInput" placeholder="新文件夹名" style="flex:1;padding:8px 12px;border:1px solid #ddd;border-radius:10px;font-size:0.85em">
+      <button onclick="createFolder()" style="padding:8px 14px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-size:0.85em">+ 新建</button>
+    </div>
+    <div id="folderList" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+  </div>
   <div id="uploadList"></div>
   <div id="docList"></div>
 </div>
@@ -155,8 +170,9 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;backgr
   <div class="setting-item" onclick="switchTab('docs')"><span class="setting-label">📄 我的文档</span><span class="setting-value" id="meDocCount">0份</span></div>
   <div class="setting-item" onclick="switchTab('ask')"><span class="setting-label">💬 问答记录</span><span class="setting-value" id="meChatCount">0条</span></div>
   <div class="setting-item" onclick="showSettings()"><span class="setting-label">⚙️ 服务器设置</span><span class="setting-value" id="serverDisplay">点击配置</span></div>
+  <div class="setting-item" onclick="loadHealth()"><span class="setting-label">💊 服务状态</span><span class="setting-value" id="healthStatus">点击检测</span></div>
   <div class="setting-item" onclick="clearAllData()"><span class="setting-label">🗑️ 清除本地数据</span></div>
-  <div style="padding:20px;text-align:center;color:#aaa;font-size:0.8em">NotebookAI v1.1.0<br>Powered by MiniMax</div>
+  <div style="padding:20px;text-align:center;color:#aaa;font-size:0.8em">NotebookAI v1.2.0<br>Powered by MiniMax<br><!-- v1.2: 补全 9 个功能 --></div>
 </div>
 
 <div class="nav">
@@ -380,6 +396,161 @@ function clearAllData(){
 }
 
 loadDocs();
+loadFolders();
+
+// ===== 文件夹管理 =====
+let folders = [], currentFolderId = null;
+
+async function loadFolders() {
+  try {
+    const resp = await fetch(API_BASE + '/folders');
+    const data = await resp.json();
+    folders = data.folders || [];
+    renderFolderBar();
+  } catch(e) { document.getElementById('folderBar').style.display = 'none'; }
+}
+
+function renderFolderBar() {
+  const el = document.getElementById('folderBar');
+  if (!folders.length) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  document.getElementById('folderList').innerHTML =
+    '<span class="know-tag" style="cursor:pointer;padding:6px 12px;background:var(--primary);color:#fff" onclick="selectFolder(null)">📁 全部</span>' +
+    folders.map(f => '<span class="know-tag" style="cursor:pointer;padding:6px 12px' + (currentFolderId===f.id?';background:var(--accent);color:#fff':'') + '" onclick="selectFolder(\''+f.id+'\')">📂 '+escapeHtml(f.name)+'</span>').join('');
+}
+
+function selectFolder(fid) {
+  currentFolderId = fid;
+  currentDocId = null;
+  loadDocs();
+  renderFolderBar();
+}
+
+async function createFolder() {
+  const name = document.getElementById('newFolderInput').value.trim();
+  if (!name) return;
+  try {
+    await fetch(API_BASE + '/folders', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name})
+    });
+    document.getElementById('newFolderInput').value = '';
+    toast('已创建'); loadFolders();
+  } catch(e) { toast('创建失败'); }
+}
+
+// ===== URL 链接解析 =====
+function showUrlUpload() {
+  showModal('🔗 链接解析', `<div style="margin-bottom:12px">
+    <label style="font-size:0.85em;color:var(--muted);display:block;margin-bottom:6px">粘贴文章/网页链接</label>
+    <input type="url" id="urlInput" placeholder="https://..." style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:12px;font-size:0.9em;outline:none;box-sizing:border-box">
+  </div>
+  <button onclick="doUrlUpload()" style="width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:12px;font-size:0.95em;cursor:pointer">解析并上传</button>
+  <div style="margin-top:8px;text-align:center;font-size:0.78em;color:var(--muted)">支持文章、新闻、文档类链接</div>`);
+}
+
+async function doUrlUpload() {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) { toast('请输入链接'); return; }
+  closeModal(); toast('正在解析链接...');
+  try {
+    const resp = await fetch(API_BASE + '/upload/url', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url, folder_id: currentFolderId || null})
+    });
+    const data = await resp.json();
+    if (data.ok) { currentDocId = data.doc.id; toast('解析成功！'); loadDocs(); switchTab('ask'); }
+    else toast('解析失败: ' + (data.error || '未知错误'));
+  } catch(e) { toast('解析失败: ' + e.message); }
+}
+
+// ===== 健康检查 =====
+async function loadHealth() {
+  document.getElementById('healthStatus').textContent = '检测中...';
+  try {
+    const resp = await fetch(API_BASE + '/health');
+    const data = await resp.json();
+    document.getElementById('healthStatus').textContent = '文档:' + data.docs + ' 片段:' + data.chunks;
+  } catch(e) { document.getElementById('healthStatus').textContent = '连接失败'; }
+}
+
+// ===== 播客生成 =====
+async function doPodcast() {
+  if (!currentDocId && !docs.length) { toast('请先上传文档'); switchTab('docs'); return; }
+  const doc_id = currentDocId || (docs[0] ? docs[0].id : '');
+  showModal('🎙️ 生成播客', '<div style="text-align:center;padding:30px"><div class="typing"><div class="typing-dots"><span></span><span></span><span></span></div>生成中，请稍候...</div><div style="margin-top:12px;font-size:0.85em;color:var(--muted)">将文档内容转化为播客脚本</div></div>');
+  try {
+    const resp = await fetch(API_BASE + '/podcast', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({doc_id})});
+    const data = await resp.json();
+    closeModal();
+    if (data.error) { toast(data.error); return; }
+    const script = data.script || data.content || '';
+    let html = '<div style="font-size:0.88em;line-height:1.7;white-space:pre-wrap;max-height:60vh;overflow-y:auto" id="podcastScript">'+escapeHtml(script)+'</div>';
+    if (data.audio_url) html += '<audio controls style="width:100%;margin-top:12px"><source src="'+data.audio_url+'">您的浏览器不支持音频</audio>';
+    html += '<div class="action-bar" style="margin-top:12px"><button class="action-btn" onclick="copyText(\'podcastScript\')"><span class="icon">📋</span><span>复制脚本</span></button></div>';
+    showModal('🎙️ 播客脚本', html);
+  } catch(e) { closeModal(); toast('生成失败: ' + e.message); }
+}
+
+// ===== 测试生成 =====
+async function doExam() {
+  if (!currentDocId && !docs.length) { toast('请先上传文档'); switchTab('docs'); return; }
+  const doc_id = currentDocId || (docs[0] ? docs[0].id : '');
+  showModal('📝 生成测试', '<div style="text-align:center;padding:30px"><div class="typing"><div class="typing-dots"><span></span><span></span><span></span></div>生成中...</div></div>');
+  try {
+    const resp = await fetch(API_BASE + '/exam', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({doc_id, type:'mixed', count:5})});
+    const data = await resp.json();
+    closeModal();
+    if (data.error) { toast(data.error); return; }
+    const questions = data.questions || [];
+    if (!questions.length) { toast('未生成题目'); return; }
+    showModal('📝 测试题 ('+questions.length+'题)', '<div id="examList">' +
+      questions.map((q, i) => `<div class="card" style="margin-bottom:14px">
+        <div class="card-title">${i+1}. ${escapeHtml(q.question || q.title || '题目')}</div>
+        ${q.options ? '<div style="margin-top:8px">'+q.options.map((o,oi)=>'<div style="padding:4px 0;color:#555">'+String.fromCharCode(65+oi)+'. '+escapeHtml(o)+'</div>').join('')+'</div>' : ''}
+        ${q.answer ? '<div style="margin-top:8px;padding:8px;background:#f0f9f4;border-radius:8px;color:#1a5c1a;font-size:0.85em">答案: '+escapeHtml(q.answer)+'</div>' : ''}
+      </div>`).join('') + '</div>');
+  } catch(e) { closeModal(); toast('生成失败: ' + e.message); }
+}
+
+// ===== 费曼学习 =====
+async function doFeynman() {
+  if (!currentDocId && !docs.length) { toast('请先上传文档'); switchTab('docs'); return; }
+  const doc_id = currentDocId || (docs[0] ? docs[0].id : '');
+  showModal('🎓 费曼讲解', '<div style="text-align:center;padding:30px"><div class="typing"><div class="typing-dots"><span></span><span></span><span></span></div>用简单语言解释复杂概念...</div></div>');
+  try {
+    const resp = await fetch(API_BASE + '/feynman', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({doc_id})});
+    const data = await resp.json();
+    closeModal();
+    if (data.error) { toast(data.error); return; }
+    const content = data.explanation || data.content || data.result || '';
+    if (!content) { toast('无内容'); return; }
+    showModal('🎓 费曼讲解', '<div id="feynmanContent" style="font-size:0.88em;line-height:1.8;white-space:pre-wrap;max-height:70vh;overflow-y:auto">'+escapeHtml(content)+'</div><div class="action-bar" style="margin-top:12px"><button class="action-btn" onclick="copyText(\'feynmanContent\')"><span class="icon">📋</span><span>复制</span></button></div>');
+  } catch(e) { closeModal(); toast('生成失败: ' + e.message); }
+}
+
+// ===== 知识关联 =====
+async function doLink() {
+  if (!currentDocId && !docs.length) { toast('请先上传文档'); switchTab('docs'); return; }
+  const doc_id = currentDocId || (docs[0] ? docs[0].id : '');
+  showModal('🔗 知识关联', '<div style="text-align:center;padding:30px"><div class="typing"><div class="typing-dots"><span></span><span></span><span></span></div>分析文档间的深层关联...</div></div>');
+  try {
+    const resp = await fetch(API_BASE + '/link', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({doc_id})});
+    const data = await resp.json();
+    closeModal();
+    if (data.error) { toast(data.error); return; }
+    const links = data.links || data.connections || [];
+    if (!links.length) { toast('未发现关联'); return; }
+    showModal('🔗 知识关联', '<div>' +
+      links.map(l => `<div class="know-card"><h3>${escapeHtml(l.title || l.relation || '关联')}</h3><p>${escapeHtml(l.description || l.content || '')}</p>${l.type?'<div class="know-tags"><span class="know-tag">#'+l.type+'</span></div>':''}</div>`).join('') + '</div>');
+  } catch(e) { closeModal(); toast('分析失败: ' + e.message); }
+}
+
+// ===== 通用复制 =====
+function copyText(elId) {
+  const el = document.getElementById(elId);
+  if (el) { navigator.clipboard.writeText(el.textContent); toast('已复制'); }
+}
 </script>
 </body>
 </html>
