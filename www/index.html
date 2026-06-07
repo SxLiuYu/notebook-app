@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>NotebookAI</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#faf7f2;--primary:#1a1a2e;--accent:#e94560;--card:#fff;--text:#333;--muted:#888}
+body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--text);padding-bottom:70px}
+.header{background:var(--primary);color:#fff;padding:16px 20px;position:sticky;top:0;z-index:100}
+.header h1{font-size:1.2em}
+.nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #eee;display:flex;z-index:100}
+.nav-item{flex:1;text-align:center;padding:10px 0;font-size:0.75em;color:var(--muted);cursor:pointer;border:none;background:#fff}
+.nav-item.active{color:var(--accent);font-weight:bold}
+.nav-item span{display:block;font-size:1.4em;margin-bottom:2px}
+.page{display:none;padding:16px}
+.page.active{display:block}
+
+/* 文档列表 */
+.doc-card{background:var(--card);border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:0 2px 8px rgba(0,0,0,0.08)}
+.doc-title{font-weight:bold;font-size:0.95em;margin-bottom:6px}
+.doc-meta{font-size:0.8em;color:var(--muted)}
+.doc-summary{font-size:0.85em;color:#555;margin-top:6px;line-height:1.5}
+.empty{text-align:center;padding:40px;color:var(--muted)}
+
+/* 上传区 */
+.upload-zone{border:2px dashed #ccc;border-radius:12px;padding:30px;text-align:center;margin-bottom:16px;cursor:pointer;background:#fff}
+.upload-zone:active{background:#f0f0f0}
+.upload-zone p{color:var(--muted);font-size:0.9em}
+.upload-zone .icon{font-size:2em;margin-bottom:8px}
+
+/* 问答 */
+.chat-bubble{margin-bottom:12px}
+.chat-q{background:var(--accent);color:#fff;padding:10px 14px;border-radius:12px 12px 4px 12px;max-width:85%;margin-left:auto;font-size:0.9em}
+.chat-a{background:var(--card);padding:10px 14px;border-radius:12px 12px 12px 4px;max-width:85%;font-size:0.9em;line-height:1.6;box-shadow:0 1px 4px rgba(0,0,0,0.06)}
+.sources{margin-top:8px;display:flex;flex-wrap:wrap;gap:4px}
+.source-tag{background:#e8f5e9;color:#1a5c1a;padding:2px 8px;border-radius:10px;font-size:0.75em}
+.typing{color:var(--muted);font-size:0.85em;padding:8px 0}
+
+/* 加载动画 */
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid #eee;border-top-color:var(--accent);border-radius:50%;animation:spin0.6s linear infinite;margin-right:6px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}
+
+/* 底部输入 */
+.input-bar{position:fixed;bottom:56px;left:0;right:0;background:#fff;padding:10px 16px;border-top:1px solid #eee;display:flex;gap:8px}
+.input-bar input{flex:1;padding:10px 14px;border:1px solid #ddd;border-radius:24px;font-size:0.95em}
+.input-bar button{padding:10px 18px;background:var(--primary);color:#fff;border:none;border-radius:24px;font-size:0.9em}
+
+/* 思维导图 */
+.mm-container{background:#fff;border-radius:12px;padding:16px;overflow:auto;min-height:300px}
+.mm-container svg{max-width:100%;height:auto}
+
+/* 知识库 */
+.know-card{background:#fff;border-radius:12px;padding:14px;margin-bottom:10px;border-left:4px solid var(--accent)}
+.know-card.red{border-left-color:#c62828}
+.know-card h3{font-size:0.95em;margin-bottom:6px}
+.know-card p{font-size:0.85em;color:#555;line-height:1.5}
+.know-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.know-tag{background:#f0f0f0;padding:2px 8px;border-radius:10px;font-size:0.75em;color:#666}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📚 NotebookAI</h1>
+</div>
+
+<!-- 首页 Tab -->
+<div class="page active" id="tab-home">
+  <div class="doc-card" style="cursor:pointer" onclick="switchTab('docs')">
+    <div class="doc-title">📄 文档库</div>
+    <div class="doc-meta" id="docCount">0份文档 · 0 个片段</div>
+    <div style="margin-top:8px">
+      <button style="padding:8px 16px;background:#1a1a2e;color:#fff;border:none;border-radius:8px;font-size:0.85em">查看文档</button>
+    </div>
+  </div>
+  <div class="doc-card">
+    <div class="doc-title">💡 快速问答</div>
+    <div class="doc-summary">选择左侧文档，直接问任何问题</div>
+  </div>
+</div>
+
+<!--文档 Tab -->
+<div class="page" id="tab-docs">
+  <div class="upload-zone" onclick="document.getElementById('fileInput').click()">
+    <div class="icon">📤</div>
+    <p>点击上传文档<br><small style="color:#aaa">PDF · DOCX · TXT · MD</small></p>
+  </div>
+  <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.md" style="display:none" onchange="handleFileUpload(this)">
+  <div id="docList"></div>
+</div>
+
+<!-- 问答 Tab -->
+<div class="page" id="tab-ask">
+  <div id="chatArea">
+    <div class="empty">👆 先在文档页上传文件，再来这里问答</div>
+  </div>
+  <div class="input-bar">
+    <input type="text" id="queryInput" placeholder="输入问题，按发送..." onkeydown="if(event.key==='Enter')sendAsk()">
+    <button onclick="sendAsk()">发送</button>
+  </div>
+</div>
+
+<!-- 知识 Tab -->
+<div class="page" id="tab-know">
+  <div id="knowList"></div>
+</div>
+
+<!-- 我的 Tab -->
+<div class="page" id="tab-me">
+  <div class="doc-card">
+    <div class="doc-title">⚙️ 设置</div>
+    <div class="doc-summary">API 配置 · 服务器地址</div>
+  </div>
+  <div class="doc-card">
+    <div class="doc-title">📊 统计</div>
+    <div class="doc-summary" id="statsBox">加载中...</div>
+  </div>
+  <div style="padding:16px;text-align:center;color:#aaa;font-size:0.8em">
+    NotebookAI v1.0.0<br>Powered by Mavis + FinnA
+  </div>
+</div>
+
+<div class="nav">
+  <button class="nav-item active" onclick="switchTab('home')"><span>🏠</span>首页</button>
+  <button class="nav-item" onclick="switchTab('docs')"><span>📄</span>文档</button>
+  <button class="nav-item" onclick="switchTab('ask')"><span>💬</span>问答</button>
+  <button class="nav-item" onclick="switchTab('know')"><span>🧠</span>知识</button>
+  <button class="nav-item" onclick="switchTab('me')"><span>👤</span>我的</button>
+</div>
+
+<script>
+const API_BASE = 'http://localhost:8095/api';
+let currentDocId = null;
+let chatHistory = [];
+let docs = [];
+
+// 标签切换
+function switchTab(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event && event.currentTarget && event.currentTarget.classList.add('active');
+  if(name === 'docs') loadDocs();
+  if(name === 'ask') loadChat();
+  if(name === 'know') loadKnowledge();
+  if(name === 'me') loadStats();
+}
+
+// 加载文档列表
+async function loadDocs() {
+  try {
+    const resp = await fetch(API_BASE + '/docs');
+    const data = await resp.json();
+    docs = data.documents || [];
+    const list = document.getElementById('docList');
+    if(!docs.length) {
+      list.innerHTML = '<div class="empty">暂无文档，上传一个试试</div>';
+      return;
+    }
+    list.innerHTML = docs.map(d => `
+      <div class="doc-card" onclick="selectDoc('${d.id}')">
+        <div class="doc-title">${d.title}</div>
+        <div class="doc-meta">${d.chunks} 片段 · ${d.size} 字</div>
+        ${d.summary ? '<div class="doc-summary">' + d.summary + '</div>' : ''}
+      </div>
+    `).join('');
+    document.getElementById('docCount').textContent = docs.length + '份文档';
+  } catch(e) {
+    document.getElementById('docList').innerHTML = '<div class="empty">连接失败，请确保服务已启动</div>';
+  }
+}
+
+// 选择文档
+function selectDoc(id) {
+  currentDocId = id;
+  switchTab('ask');
+  document.getElementById('chatArea').innerHTML = '<div class="empty">文档已选择，开始问答吧！</div>';
+}
+
+// 上传文件
+async function handleFileUpload(input) {
+  const file = input.files[0];
+  if(!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  if(currentDocId) fd.append('folder_id', '');
+  try {
+    const resp = await fetch(API_BASE + '/upload', {method:'POST', body:fd});
+    const data = await resp.json();
+    if(data.ok) {
+      currentDocId = data.doc.id;
+      loadDocs();
+      switchTab('ask');
+      document.getElementById('chatArea').innerHTML = '<div class="empty">上传成功！"' + data.doc.title + '"已就绪，开始问答吧！</div>';
+    } else {
+      alert('上传失败: ' + (data.error || '未知错误'));
+    }
+  } catch(e) {
+    alert('连接失败: ' + e.message);
+  }
+  input.value = '';
+}
+
+// 加载问答
+function loadChat() {
+  if(currentDocId) {
+    const existing = document.getElementById('chatArea').innerHTML;
+    if(existing.includes('empty')) document.getElementById('chatArea').innerHTML = '';
+  }
+}
+
+// 发送问答
+async function sendAsk() {
+  const input = document.getElementById('queryInput');
+  const q = input.value.trim();
+  if(!q) return;
+  if(!currentDocId) { alert('请先上传文档'); return; }
+
+  const area = document.getElementById('chatArea');
+  area.innerHTML += `<div class="chat-bubble"><div class="chat-q">${q}</div></div>`;
+  area.innerHTML += `<div class="chat-bubble"><div class="chat-a"><span class="spinner"></span>思考中...</div></div>`;
+  area.scrollTop = area.scrollHeight;
+  input.value = '';
+
+  try {
+    const resp = await fetch(API_BASE + '/ask', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({query: q, doc_id: currentDocId, history: chatHistory})
+    });
+    const data = await resp.json();
+    chatHistory.push({role:'user', content: q});
+    chatHistory.push({role:'assistant', content: data.answer});
+
+    // 移除loading
+    area.querySelectorAll('.chat-a').forEach(a => {
+      if(a.textContent.includes('思考中')) a.parentElement.remove();
+    });
+    area.innerHTML += `<div class="chat-bubble"><div class="chat-a">${data.answer}${data.sources && data.sources.length ? '<div class="sources">' + data.sources.map(s => '<span class="source-tag">📄 '+s.title+'</span>').join('') + '</div>' : ''}</div></div>`;
+    area.scrollTop = area.scrollHeight;
+  } catch(e) {
+    area.querySelectorAll('.chat-a').forEach(a => {
+      if(a.textContent.includes('思考中')) a.innerHTML = '请求失败: ' + e.message;
+    });
+  }
+}
+
+// 加载统计
+async function loadStats() {
+  try {
+    const resp = await fetch(API_BASE + '/health');
+    const data = await resp.json();
+    document.getElementById('statsBox').textContent = '文档: ' + data.docs + ' · 片段: ' + data.chunks;
+  } catch(e) {
+    document.getElementById('statsBox').textContent = '服务未连接';
+  }
+}
+
+// 加载知识库
+async function loadKnowledge() {
+  document.getElementById('knowList').innerHTML = '<div class="empty">知识库加载中...</div>';
+  // 内置知识库演示
+  const kbs = [
+    {title:'食物红榜：鸡蛋', summary:'一天2-3个鸡蛋，胜过海参燕窝虫草。蛋白质姓蛋！', type:'green'},
+    {title:'智商税：骨头汤', summary:'骨头汤补不了钙，喝牛奶才是正解。营养在肉里，不在汤里。', type:'red'},
+    {title:'健康习惯：睡眠', summary:'睡好美容觉比任何护肤程序都重要，睡眠是最好的抗衰老手段。', type:'green'},
+    {title:'智商税：果汁奶茶', summary:'水果高糖，一天不超过200g；果汁更不健康，好果不打汁。', type:'red'},
+    {title:'营养素：Omega-3', summary:'DHA补脑，EPA清血管，深海鱼是最好来源。', type:'green'},
+  ];
+  document.getElementById('knowList').innerHTML = kbs.map(k => `
+    <div class="know-card ${k.type}">
+      <h3>${k.title}</h3>
+      <p>${k.summary}</p>
+    </div>
+  `).join('');
+}
+
+// 初始化
+loadDocs();
+</script>
+</body>
+</html>
